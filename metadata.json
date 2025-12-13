@@ -1,0 +1,5 @@
+{
+  "name": "APPBCTH",
+  "description": "A web tool to upload and display driving test results from XML files. It aggregates data for theory, simulation, practical course, and on-road tests for different license classes.",
+  "requestFramePermissions": []
+}

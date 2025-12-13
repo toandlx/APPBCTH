@@ -1,0 +1,294 @@
+
+import React, { useState, useMemo, useEffect } from 'react';
+import type { AppData, LicenseClassData, StudentRecord, ReportMetadata } from '../../types';
+import { GeneralReport } from './GeneralReport';
+import { StudentListReport } from './StudentListReport';
+import { isStudentPassed, isStudentAbsent } from '../../services/reportUtils';
+import { exportGeneralReportToExcel, exportStudentListToExcel } from '../../services/excelGenerator';
+import { ReportMetadataModal } from '../ReportMetadataModal';
+
+interface ReportDashboardPageProps {
+    summaryData: AppData;
+    studentRecords: StudentRecord[] | null;
+    grandTotal: LicenseClassData | null;
+    reportMetadata: ReportMetadata;
+    
+    // Props mới cho tính năng lưu trữ
+    mode?: 'preview' | 'view'; // 'preview' khi tạo mới, 'view' khi xem từ DB
+    onSaveSession?: (sessionName: string, reportDate: Date) => void;
+    // New prop for updating existing session
+    onUpdateSession?: (sessionName: string, reportDate: Date, metadata: ReportMetadata) => void;
+    initialReportDate?: string; // ISO String
+    sessionName?: string; // Initial name for view mode
+}
+
+type ReportView = 'summary' | 'passed' | 'failed' | 'absent';
+
+export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({ 
+    summaryData, 
+    studentRecords, 
+    grandTotal, 
+    reportMetadata,
+    mode = 'preview',
+    onSaveSession,
+    onUpdateSession,
+    initialReportDate,
+    sessionName: initialSessionName
+}) => {
+    const [view, setView] = useState<ReportView>('summary');
+    const [reportDate, setReportDate] = useState<Date>(initialReportDate ? new Date(initialReportDate) : new Date());
+    const [sessionName, setSessionName] = useState(initialSessionName || `Kỳ sát hạch ngày ${new Date().toLocaleDateString('vi-VN')}`);
+    
+    // Editing states
+    const [isEditing, setIsEditing] = useState(false);
+    const [localMetadata, setLocalMetadata] = useState<ReportMetadata>(reportMetadata);
+    const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
+
+    // Sync props to state when switching sessions in view mode
+    useEffect(() => {
+        if (mode === 'view') {
+            if (initialReportDate) setReportDate(new Date(initialReportDate));
+            if (initialSessionName) setSessionName(initialSessionName);
+            setLocalMetadata(reportMetadata);
+            setIsEditing(false); // Reset edit mode when switching sessions
+        }
+    }, [initialReportDate, initialSessionName, reportMetadata, mode]);
+
+    // Cập nhật tên mặc định khi ngày thay đổi trong mode preview
+    useEffect(() => {
+        if (mode === 'preview' && !initialReportDate) {
+             setSessionName(`Kỳ sát hạch ngày ${reportDate.toLocaleDateString('vi-VN')}`);
+        }
+    }, [reportDate, mode, initialReportDate]);
+
+    const hasDetailedData = studentRecords && studentRecords.length > 0;
+
+    // Reset view to summary if detailed data becomes unavailable
+    useEffect(() => {
+        if (!hasDetailedData) {
+            setView('summary');
+        }
+    }, [hasDetailedData]);
+
+    const { passedStudents, failedStudents, absentStudents } = useMemo(() => {
+        if (!hasDetailedData) {
+            return { passedStudents: [], failedStudents: [], absentStudents: [] };
+        }
+        const passed: StudentRecord[] = [];
+        const failed: StudentRecord[] = [];
+        const absent: StudentRecord[] = [];
+
+        for (const record of studentRecords!) {
+            if (isStudentAbsent(record)) {
+                absent.push(record);
+            } else if (isStudentPassed(record)) {
+                passed.push(record);
+            } else {
+                failed.push(record);
+            }
+        }
+        return { passedStudents: passed, failedStudents: failed, absentStudents: absent };
+    }, [studentRecords, hasDetailedData]);
+
+    const handleDownload = () => {
+        switch(view) {
+            case 'summary':
+                exportGeneralReportToExcel(summaryData, grandTotal, reportDate, localMetadata);
+                break;
+            case 'passed':
+                exportStudentListToExcel(passedStudents, 'Danh_Sach_Dat', reportDate);
+                break;
+            case 'failed':
+                exportStudentListToExcel(failedStudents, 'Danh_Sach_Truot', reportDate);
+                break;
+            case 'absent':
+                exportStudentListToExcel(absentStudents, 'Danh_Sach_Vang', reportDate);
+                break;
+        }
+    };
+
+    const handleSaveClick = () => {
+        if (mode === 'preview' && onSaveSession) {
+            onSaveSession(sessionName, reportDate);
+        } else if (mode === 'view' && onUpdateSession) {
+            onUpdateSession(sessionName, reportDate, localMetadata);
+            setIsEditing(false);
+        }
+    };
+
+    const handleCancelEdit = () => {
+        setIsEditing(false);
+        // Reset to initial values
+        if (initialReportDate) setReportDate(new Date(initialReportDate));
+        if (initialSessionName) setSessionName(initialSessionName);
+        setLocalMetadata(reportMetadata);
+    };
+
+    const renderActiveReport = () => {
+        switch(view) {
+            case 'summary':
+                return <GeneralReport appData={summaryData} grandTotal={grandTotal} reportDate={reportDate} reportMetadata={localMetadata} />;
+            case 'passed':
+                return <StudentListReport title="DANH SÁCH THÍ SINH ĐẠT SÁT HẠCH LÁI XE Ô TÔ" students={passedStudents} reportType="passed" reportDate={reportDate} />;
+            case 'failed':
+                return <StudentListReport title="DANH SÁCH THÍ SINH TRƯỢT SÁT HẠCH LÁI XE Ô TÔ" students={failedStudents} reportType="failed" reportDate={reportDate} />;
+            case 'absent':
+                 return <StudentListReport title="DANH SÁCH THÍ SINH VẮNG SÁT HẠCH LÁI XE Ô TÔ" students={absentStudents} reportType="absent" reportDate={reportDate} />;
+            default:
+                return null;
+        }
+    };
+    
+    const TabButton: React.FC<{reportView: ReportView; label: string; icon: string}> = ({reportView, label, icon}) => (
+        <button
+            onClick={() => setView(reportView)}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${
+                view === reportView 
+                    ? 'bg-blue-600 text-white shadow' 
+                    : 'text-gray-600 hover:text-blue-600 hover:bg-gray-100'
+            }`}
+        >
+            <i className={`fa-solid ${icon}`}></i> {label}
+        </button>
+    );
+
+    return (
+        <div className="flex flex-col h-full">
+            {/* Control Bar */}
+            <div className="bg-white border-b border-gray-200 p-4 print:hidden flex flex-col xl:flex-row gap-4 justify-between xl:items-center sticky top-0 z-10 shadow-sm">
+                
+                {/* Left: View Switcher */}
+                <div className="flex flex-wrap items-center gap-2">
+                   <TabButton reportView="summary" label="Báo cáo chung" icon="fa-chart-pie" />
+                   {hasDetailedData && (
+                       <>
+                        <TabButton reportView="passed" label="DS Đạt" icon="fa-circle-check" />
+                        <TabButton reportView="failed" label="DS Trượt" icon="fa-circle-xmark" />
+                        <TabButton reportView="absent" label="DS Vắng" icon="fa-user-slash" />
+                       </>
+                   )}
+                </div>
+
+                {/* Right: Actions */}
+                <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
+                    
+                    {/* Mode specific controls */}
+                    {(mode === 'preview' || isEditing) ? (
+                        <div className="flex items-center gap-2">
+                             <div className="flex flex-col">
+                                <label className="text-xs text-gray-500 font-semibold mb-0.5">Tên kỳ sát hạch:</label>
+                                <input 
+                                    type="text"
+                                    value={sessionName}
+                                    onChange={(e) => setSessionName(e.target.value)}
+                                    className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-48 sm:w-64 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    placeholder="Nhập tên kỳ..."
+                                />
+                             </div>
+                             
+                             <div className="flex flex-col">
+                                <label className="text-xs text-gray-500 font-semibold mb-0.5">Ngày báo cáo:</label>
+                                <input 
+                                    type="date" 
+                                    value={reportDate.toISOString().split('T')[0]}
+                                    onChange={(e) => setReportDate(new Date(e.target.value))}
+                                    className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-36 focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                             </div>
+
+                             {isEditing && (
+                                <button
+                                    onClick={() => setIsMetadataModalOpen(true)}
+                                    className="px-3 py-1.5 mt-4 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm font-medium"
+                                    title="Sửa thông tin biên bản"
+                                >
+                                    <i className="fa-solid fa-pen-to-square"></i> Biên bản
+                                </button>
+                             )}
+                        </div>
+                    ) : (
+                        // View Only Mode (Not Editing)
+                        <div className="flex items-center gap-4 mr-4">
+                            <div className="text-right">
+                                <div className="text-xs text-gray-500">Ngày báo cáo</div>
+                                <div className="font-semibold text-sm">{reportDate.toLocaleDateString('vi-VN')}</div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    <div className="flex items-center gap-2 mt-4 sm:mt-0">
+                         <button
+                            onClick={handleDownload}
+                            className="px-3 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors flex items-center gap-2 text-sm font-medium shadow-sm"
+                            title="Tải file Excel"
+                        >
+                            <i className="fa-solid fa-file-excel"></i> <span className="hidden sm:inline">Excel</span>
+                        </button>
+                        <button
+                            onClick={() => window.print()}
+                            className="px-3 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors flex items-center gap-2 text-sm font-medium shadow-sm"
+                            title="In báo cáo"
+                        >
+                            <i className="fa-solid fa-print"></i> <span className="hidden sm:inline">In</span>
+                        </button>
+                        
+                        {/* Action Buttons based on Mode */}
+                        {mode === 'preview' && (
+                            <button
+                                onClick={handleSaveClick}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors flex items-center gap-2 text-sm font-medium shadow-md ml-2 animate-pulse hover:animate-none"
+                            >
+                                <i className="fa-solid fa-floppy-disk"></i> Lưu
+                            </button>
+                        )}
+
+                        {mode === 'view' && !isEditing && (
+                            <button
+                                onClick={() => setIsEditing(true)}
+                                className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors flex items-center gap-2 text-sm font-medium shadow-sm ml-2"
+                            >
+                                <i className="fa-solid fa-pen"></i> Sửa
+                            </button>
+                        )}
+
+                        {mode === 'view' && isEditing && (
+                            <>
+                                <button
+                                    onClick={handleSaveClick}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm font-medium shadow-sm ml-2"
+                                >
+                                    <i className="fa-solid fa-check"></i> Lưu
+                                </button>
+                                <button
+                                    onClick={handleCancelEdit}
+                                    className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors flex items-center gap-2 text-sm font-medium shadow-sm"
+                                >
+                                    <i className="fa-solid fa-xmark"></i> Hủy
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
+            
+            {/* Report Content */}
+            <div className="report-content flex-1 p-8 bg-gray-50 overflow-y-auto print:p-0 print:bg-white">
+                 <div className="max-w-[297mm] mx-auto bg-white shadow-lg p-10 min-h-[210mm] print:shadow-none print:p-0">
+                    {renderActiveReport()}
+                 </div>
+            </div>
+
+            {/* Metadata Modal */}
+            {isMetadataModalOpen && (
+                <ReportMetadataModal
+                    initialMetadata={localMetadata}
+                    onSave={(newMetadata) => {
+                        setLocalMetadata(newMetadata);
+                        setIsMetadataModalOpen(false);
+                    }}
+                    onClose={() => setIsMetadataModalOpen(false)}
+                />
+            )}
+        </div>
+    );
+};
