@@ -1,12 +1,13 @@
 
 
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { Pool, Client } = require('pg');
 
-const SERVER_VERSION = '3.5.2';
+const SERVER_VERSION = '3.5.3';
 console.log(`\n\n==================================================`);
 console.log(`🚀 STARTING SERVER v${SERVER_VERSION}`);
 console.log(`==================================================\n`);
@@ -138,6 +139,19 @@ const initSchema = async () => {
     try {
         await pool.query(createSessionsTable);
         await pool.query(createTrainingUnitsTable);
+
+        // MIGRATION: Ensure created_at exists (for upgrades from older versions)
+        // This handles the case where the table was created before 'created_at' was added to the schema.
+        await pool.query(`
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='training_units' AND column_name='created_at') THEN
+                    ALTER TABLE training_units ADD COLUMN created_at BIGINT;
+                END IF;
+            END
+            $$;
+        `);
+
         console.log("✅ Tables 'sessions' and 'training_units' verified/created.");
     } catch (err) {
         console.error("❌ Error initializing database schema:", err);
@@ -280,6 +294,7 @@ app.post('/api/sessions', ensureDb, async (req, res) => {
         await pool.query(query, values);
         res.status(200).json({ message: 'Saved successfully', id: session.id });
     } catch (err) {
+        console.error("Error saving session:", err);
         res.status(500).json({ error: 'Failed to save session' });
     }
 });
@@ -318,7 +333,8 @@ app.post('/api/training-units', ensureDb, async (req, res) => {
         await pool.query(query, [unit.id, unit.code, unit.name, createdAt]);
         res.status(200).json({ message: 'Saved successfully', unit });
     } catch (err) {
-        res.status(500).json({ error: 'Failed to save unit' });
+        console.error("Error saving training unit:", err);
+        res.status(500).json({ error: 'Failed to save unit', details: err.message });
     }
 });
 
@@ -340,8 +356,9 @@ app.post('/api/training-units/batch', ensureDb, async (req, res) => {
         await client.query('COMMIT');
         res.status(200).json({ message: `Imported ${units.length} units` });
     } catch (err) {
+        console.error("Error batch importing units:", err);
         await client.query('ROLLBACK');
-        res.status(500).json({ error: 'Failed to import units' });
+        res.status(500).json({ error: 'Failed to import units', details: err.message });
     } finally {
         client.release();
     }

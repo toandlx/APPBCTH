@@ -151,10 +151,14 @@ export const StudentLookupPage: React.FC = () => {
                                         </div>
 
                                         {/* Details Grid */}
-                                        <div className="p-4 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                                        <div className="p-4 grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
                                             <div className="flex flex-col border-r last:border-r-0">
                                                 <span className="text-gray-500 text-xs uppercase mb-1">Hạng GPLX</span>
                                                 <span className="font-bold">{s['HẠNG GPLX']}</span>
+                                            </div>
+                                            <div className="flex flex-col border-r last:border-r-0">
+                                                <span className="text-gray-500 text-xs uppercase mb-1">Nội dung thi</span>
+                                                <span className="font-bold text-blue-600">{s['NỘI DUNG THI'] || '-'}</span>
                                             </div>
                                             <div className="flex flex-col border-r last:border-r-0">
                                                 <span className="text-gray-500 text-xs uppercase mb-1">Lý Thuyết</span>
