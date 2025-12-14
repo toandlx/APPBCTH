@@ -4,11 +4,15 @@ import { ReportDashboardPage } from './components/reports/ReportDashboardPage';
 import { AdminSidebar } from './components/admin/AdminSidebar';
 import { SessionList } from './components/admin/SessionList';
 import { SettingsPage } from './components/admin/SettingsPage';
+import { TrainingUnitManager } from './components/admin/TrainingUnitManager';
+import { AggregateReportPage } from './components/admin/AggregateReportPage';
+import { StudentLookupPage } from './components/admin/StudentLookupPage';
 import { storageService } from './services/storageService';
-import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, SavedSession } from './types';
-import { processExcelData } from './services/excelProcessor';
+import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, SavedSession, TrainingUnit } from './types';
+import { processExcelData, normalizeData } from './services/excelProcessor';
+import { Toast } from './components/ui/Toast';
 
-type AppView = 'dashboard' | 'create' | 'detail' | 'settings';
+type AppView = 'dashboard' | 'create' | 'detail' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup';
 
 const App: React.FC = () => {
     // Navigation State
@@ -21,10 +25,12 @@ const App: React.FC = () => {
     const [appData, setAppData] = useState<AppData | null>(null);
     const [studentRecords, setStudentRecords] = useState<StudentRecord[] | null>(null);
     const [selectedSession, setSelectedSession] = useState<SavedSession | null>(null);
+    const [trainingUnits, setTrainingUnits] = useState<TrainingUnit[]>([]);
     
     // UI State
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
     // Initial Metadata Template
     const [reportMetadata, setReportMetadata] = useState<ReportMetadata>({
@@ -40,25 +46,56 @@ const App: React.FC = () => {
         technicalErrorSBD: '02,153,369',
     });
 
-    // Load sessions on mount
-    const loadSessions = async () => {
+    // Load sessions & units on mount
+    const loadData = async () => {
         const sessions = await storageService.getAllSessions();
+        const units = await storageService.getAllTrainingUnits();
         setSavedSessions(sessions);
+        setTrainingUnits(units);
     };
 
     useEffect(() => {
-        loadSessions();
+        const init = async () => {
+             // 1. Check Server Connection
+             try {
+                const res = await fetch('/api/server-status');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.dbConnected) {
+                        showToast('Đã kết nối Cloud SQL thành công!', 'success');
+                    } else {
+                        showToast('Không thể kết nối Cloud SQL. Đang dùng chế độ Offline.', 'info');
+                    }
+                }
+             } catch (e) {
+                 showToast('Mất kết nối Server. Đang dùng chế độ Offline.', 'info');
+             }
+
+             // 2. Load Data
+             await loadData();
+        };
+        init();
     }, []);
 
-    const handleExcelSubmit = (records: StudentRecord[]) => {
+    const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+        setToast({ message, type });
+    };
+
+    const handleExcelSubmit = (rawRecords: StudentRecord[]) => {
         setIsLoading(true);
         setError(null);
         try {
-            const processedData = processExcelData(records);
-            setStudentRecords(records);
+            // Normalize data FIRST to ensure consistent keys and auto-generated fields
+            const cleanRecords = normalizeData(rawRecords);
+            const processedData = processExcelData(cleanRecords);
+            
+            setStudentRecords(cleanRecords); // Store CLEAN data
             setAppData(processedData);
+            
+            showToast('Xử lý dữ liệu thành công! Vui lòng kiểm tra và lưu báo cáo.', 'info');
         } catch (e) {
              setError(`Lỗi xử lý file Excel: ${(e as Error).message}`);
+             showToast('Lỗi xử lý file Excel', 'error');
         } finally {
             setIsLoading(false);
         }
@@ -104,61 +141,84 @@ const App: React.FC = () => {
         setAppData(null);
         setStudentRecords(null);
         setError(null);
+        // trainingUnits are global config, do not clear them when clearing session data
     };
 
     const handleSaveSession = async (name: string, reportDate: Date) => {
         if (!appData || !grandTotal || !studentRecords) return;
         setIsLoading(true);
 
-        const newSession: SavedSession = {
-            id: Date.now().toString(),
-            name: name,
-            createdAt: Date.now(),
-            reportDate: reportDate.toISOString(),
-            studentRecords: studentRecords,
-            appData: appData,
-            grandTotal: grandTotal,
-            reportMetadata: reportMetadata
-        };
+        try {
+            const newSession: SavedSession = {
+                id: Date.now().toString(),
+                name: name,
+                createdAt: Date.now(),
+                reportDate: reportDate.toISOString(),
+                studentRecords: studentRecords,
+                appData: appData,
+                grandTotal: grandTotal,
+                reportMetadata: reportMetadata,
+                trainingUnits: trainingUnits // Save units
+            };
 
-        await storageService.saveSession(newSession);
-        await loadSessions();
-        
-        // Reset and go to dashboard
-        handleClearData();
-        setCurrentView('dashboard');
-        setIsLoading(false);
-        alert('Đã lưu kỳ sát hạch thành công!');
+            await storageService.saveSession(newSession);
+            await loadData(); // Refresh sessions
+            
+            // Reset and go to dashboard
+            handleClearData();
+            setCurrentView('dashboard');
+            showToast('Đã lưu kỳ sát hạch thành công!', 'success');
+        } catch (err) {
+            showToast('Lỗi khi lưu dữ liệu!', 'error');
+            console.error(err);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleUpdateSession = async (name: string, reportDate: Date, metadata: ReportMetadata) => {
         if (!selectedSession) return;
         setIsLoading(true);
 
-        const updatedSession: SavedSession = {
-            ...selectedSession,
-            name: name,
-            reportDate: reportDate.toISOString(),
-            reportMetadata: metadata
-        };
+        try {
+            const updatedSession: SavedSession = {
+                ...selectedSession,
+                name: name,
+                reportDate: reportDate.toISOString(),
+                reportMetadata: metadata,
+                // trainingUnits usually don't change in this edit mode, 
+                // but if we added unit editing in view mode, we would update it here.
+                // For now, keep existing.
+                trainingUnits: selectedSession.trainingUnits || []
+            };
 
-        await storageService.saveSession(updatedSession);
-        await loadSessions();
-        
-        // Update local selected session state so the view refreshes immediately
-        setSelectedSession(updatedSession);
-        setReportMetadata(metadata);
-        
-        setIsLoading(false);
-        alert('Đã cập nhật kỳ sát hạch!');
+            await storageService.saveSession(updatedSession);
+            await loadData();
+            
+            // Update local selected session state so the view refreshes immediately
+            setSelectedSession(updatedSession);
+            setReportMetadata(metadata);
+            
+            showToast('Đã cập nhật kỳ sát hạch!', 'success');
+        } catch (err) {
+            showToast('Lỗi khi cập nhật dữ liệu!', 'error');
+            console.error(err);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleDeleteSession = async (id: string) => {
-        await storageService.deleteSession(id);
-        await loadSessions();
-        if (selectedSession?.id === id) {
-            setSelectedSession(null);
-            setCurrentView('dashboard');
+        try {
+            await storageService.deleteSession(id);
+            await loadData();
+            if (selectedSession?.id === id) {
+                setSelectedSession(null);
+                setCurrentView('dashboard');
+            }
+            showToast('Đã xóa kỳ sát hạch.', 'info');
+        } catch (err) {
+            showToast('Lỗi khi xóa dữ liệu!', 'error');
         }
     };
 
@@ -176,6 +236,7 @@ const App: React.FC = () => {
         setAppData(fullSession.appData);
         setStudentRecords(fullSession.studentRecords);
         setReportMetadata(fullSession.reportMetadata);
+        setTrainingUnits(fullSession.trainingUnits || []); // Load units
         setCurrentView('detail');
         setIsLoading(false);
     };
@@ -186,7 +247,7 @@ const App: React.FC = () => {
             setSelectedSession(null);
         }
         if (view === 'dashboard') {
-            loadSessions();
+            loadData();
         }
         setCurrentView(view);
     };
@@ -204,12 +265,35 @@ const App: React.FC = () => {
                     onSelectSession={handleSelectSession} 
                     onDeleteSession={handleDeleteSession}
                     onCreateNew={() => handleNavChange('create')}
-                    onRefresh={async () => { await loadSessions(); }}
+                    onRefresh={async () => { await loadData(); }}
                 />
             );
         }
 
-        // 2. Create View (Input -> Preview)
+        // 2. Aggregate Report (NEW)
+        if (currentView === 'aggregate-report') {
+            return <AggregateReportPage />;
+        }
+
+        // 3. Student Lookup (NEW PHASE 3)
+        if (currentView === 'student-lookup') {
+            return <StudentLookupPage />;
+        }
+
+        // 4. Training Units Management
+        if (currentView === 'training-units') {
+            return (
+                <TrainingUnitManager 
+                    trainingUnits={trainingUnits}
+                    onUnitsImport={(units) => {
+                        setTrainingUnits(units);
+                        showToast(`Cập nhật thành công ${units.length} đơn vị đào tạo!`, 'success');
+                    }}
+                />
+            );
+        }
+
+        // 5. Create View (Input -> Preview)
         if (currentView === 'create') {
             // If we have calculated data, show Preview Report
             if (appData) {
@@ -233,6 +317,7 @@ const App: React.FC = () => {
                                 reportMetadata={reportMetadata}
                                 mode="preview"
                                 onSaveSession={handleSaveSession}
+                                trainingUnits={trainingUnits} // Pass units from global state
                             />
                          </div>
                     </div>
@@ -241,8 +326,8 @@ const App: React.FC = () => {
 
             // Else show Input Form
             return (
-                <div className="h-full bg-gray-50 flex justify-center p-6 overflow-y-auto">
-                    <div className="w-full max-w-4xl bg-white rounded-xl shadow-lg h-fit min-h-[600px] flex flex-col">
+                <div className="h-full bg-gray-50 flex justify-center overflow-y-auto">
+                    <div className="w-full max-w-5xl bg-white shadow-lg h-full flex flex-col">
                          <DataInputPage 
                             onExcelSubmit={handleExcelSubmit}
                             isLoading={isLoading}
@@ -256,7 +341,7 @@ const App: React.FC = () => {
             );
         }
 
-        // 3. Detail View (View Only/Edit)
+        // 6. Detail View (View Only/Edit)
         if (currentView === 'detail' && selectedSession && appData) {
              return (
                  <div className="h-full bg-gray-200 flex flex-col">
@@ -287,6 +372,7 @@ const App: React.FC = () => {
                                 initialReportDate={selectedSession.reportDate}
                                 sessionName={selectedSession.name}
                                 onUpdateSession={handleUpdateSession}
+                                trainingUnits={trainingUnits} // Pass units
                             />
                          )}
                      </div>
@@ -294,7 +380,7 @@ const App: React.FC = () => {
             );
         }
 
-        // 4. Settings View
+        // 7. Settings View
         if (currentView === 'settings') {
             return <SettingsPage />;
         }
@@ -311,6 +397,15 @@ const App: React.FC = () => {
             <main className="flex-1 h-full relative flex flex-col min-w-0">
                 {renderMainContent()}
             </main>
+
+            {/* Global Toast */}
+            {toast && (
+                <Toast 
+                    message={toast.message} 
+                    type={toast.type} 
+                    onClose={() => setToast(null)} 
+                />
+            )}
         </div>
     );
 };

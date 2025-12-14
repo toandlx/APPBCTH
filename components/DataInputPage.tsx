@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { ExcelUploadSection } from './ExcelUploadSection';
 import type { StudentRecord, ReportMetadata } from '../types';
@@ -29,7 +28,7 @@ export const DataInputPage: React.FC<DataInputPageProps> = ({
                  <div className="flex justify-between items-start">
                     <div>
                          <h1 className="text-xl font-bold text-gray-800">Bảng Điều Khiển</h1>
-                         <p className="mt-1 text-sm text-gray-600">Nhập dữ liệu Excel để tạo báo cáo.</p>
+                         <p className="mt-1 text-sm text-gray-600">Nhập dữ liệu Excel học viên để tạo báo cáo.</p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                         <button
@@ -49,8 +48,11 @@ export const DataInputPage: React.FC<DataInputPageProps> = ({
                     </div>
                  </div>
             </header>
-            <main className="flex-1 overflow-y-auto bg-gray-50">
+            <main className="flex-1 overflow-y-auto bg-gray-50 p-6 space-y-6">
+                
+                {/* Section: Upload Student Data */}
                 <ExcelUploadSection onSubmit={onExcelSubmit} isLoading={isLoading} error={error} />
+
             </main>
             {isMetadataModalOpen && (
                 <ReportMetadataModal

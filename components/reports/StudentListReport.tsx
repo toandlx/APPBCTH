@@ -1,5 +1,6 @@
+
 import React, { useMemo } from 'react';
-import type { StudentRecord } from '../../types';
+import type { StudentRecord, TrainingUnit } from '../../types';
 import { generateClassSummaryString, generateGhiChu, identifyTrainingUnit } from '../../services/reportUtils';
 
 interface StudentListReportProps {
@@ -7,12 +8,13 @@ interface StudentListReportProps {
     students: StudentRecord[];
     reportType: 'passed' | 'failed' | 'absent';
     reportDate: Date;
+    trainingUnits?: TrainingUnit[];
 }
 
 const tableHeaderCellStyle = "p-2 border border-black font-bold text-center text-sm";
 const tableCellStyle = "p-2 border border-black text-center text-sm";
 
-export const StudentListReport: React.FC<StudentListReportProps> = ({ title, students, reportType, reportDate }) => {
+export const StudentListReport: React.FC<StudentListReportProps> = ({ title, students, reportType, reportDate, trainingUnits = [] }) => {
     
     const classSummary = useMemo(() => generateClassSummaryString(students), [students]);
 
@@ -82,7 +84,7 @@ export const StudentListReport: React.FC<StudentListReportProps> = ({ title, stu
                         <td className={tableCellStyle}>{formatDate(s['NGÀY SINH'])}</td>
                         <td className={tableCellStyle}>{s['SỐ CHỨNG MINH'] || ''}</td>
                         <td className={tableCellStyle}>{s['HẠNG GPLX']}</td>
-                        <td className={tableCellStyle}>{identifyTrainingUnit(s['MÃ HỌC VIÊN'], [])}</td>
+                        <td className={tableCellStyle}>{identifyTrainingUnit(s['MÃ HỌC VIÊN'], trainingUnits)}</td>
                         <td className={tableCellStyle}>{generateGhiChu(s)}</td>
                     </tr>
                 ))}
@@ -118,7 +120,7 @@ export const StudentListReport: React.FC<StudentListReportProps> = ({ title, stu
                         <td className={`${tableCellStyle} text-left`}>{s['HỌ VÀ TÊN']}</td>
                         <td className={tableCellStyle}>{formatDate(s['NGÀY SINH'])}</td>
                         <td className={tableCellStyle}>{s['HẠNG GPLX']}</td>
-                        <td className={tableCellStyle}>{identifyTrainingUnit(s['MÃ HỌC VIÊN'], [])}</td>
+                        <td className={tableCellStyle}>{identifyTrainingUnit(s['MÃ HỌC VIÊN'], trainingUnits)}</td>
                         <td className={tableCellStyle}>{reportType === 'absent' ? 'Vắng' : (s['LÝ THUYẾT'] || '')}</td>
                         <td className={tableCellStyle}>{reportType === 'absent' ? 'Vắng' : (s['MÔ PHỎNG'] || '')}</td>
                         <td className={tableCellStyle}>{reportType === 'absent' ? 'Vắng' : (s['SA HÌNH'] || '')}</td>

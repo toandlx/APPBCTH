@@ -1,10 +1,11 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
-import type { AppData, LicenseClassData, StudentRecord, ReportMetadata } from '../../types';
+import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, TrainingUnit } from '../../types';
 import { GeneralReport } from './GeneralReport';
 import { StudentListReport } from './StudentListReport';
+import { UnitStatisticsReport } from './UnitStatisticsReport';
+import { MasterStudentListReport } from './MasterStudentListReport';
 import { isStudentPassed, isStudentAbsent } from '../../services/reportUtils';
-import { exportGeneralReportToExcel, exportStudentListToExcel } from '../../services/excelGenerator';
+import { exportGeneralReportToExcel, exportStudentListToExcel, exportUnitStatisticsToExcel, exportMasterListToExcel } from '../../services/excelGenerator';
 import { ReportMetadataModal } from '../ReportMetadataModal';
 
 interface ReportDashboardPageProps {
@@ -20,9 +21,12 @@ interface ReportDashboardPageProps {
     onUpdateSession?: (sessionName: string, reportDate: Date, metadata: ReportMetadata) => void;
     initialReportDate?: string; // ISO String
     sessionName?: string; // Initial name for view mode
+    
+    // Props for training units
+    trainingUnits?: TrainingUnit[];
 }
 
-type ReportView = 'summary' | 'passed' | 'failed' | 'absent';
+type ReportView = 'summary' | 'unit-stats' | 'passed' | 'failed' | 'absent' | 'master-list';
 
 export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({ 
     summaryData, 
@@ -33,7 +37,8 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
     onSaveSession,
     onUpdateSession,
     initialReportDate,
-    sessionName: initialSessionName
+    sessionName: initialSessionName,
+    trainingUnits = []
 }) => {
     const [view, setView] = useState<ReportView>('summary');
     const [reportDate, setReportDate] = useState<Date>(initialReportDate ? new Date(initialReportDate) : new Date());
@@ -95,6 +100,9 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
             case 'summary':
                 exportGeneralReportToExcel(summaryData, grandTotal, reportDate, localMetadata);
                 break;
+            case 'unit-stats':
+                if (studentRecords) exportUnitStatisticsToExcel(studentRecords, trainingUnits, reportDate);
+                break;
             case 'passed':
                 exportStudentListToExcel(passedStudents, 'Danh_Sach_Dat', reportDate);
                 break;
@@ -103,6 +111,9 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
                 break;
             case 'absent':
                 exportStudentListToExcel(absentStudents, 'Danh_Sach_Vang', reportDate);
+                break;
+            case 'master-list':
+                if (studentRecords) exportMasterListToExcel(studentRecords, trainingUnits, reportDate);
                 break;
         }
     };
@@ -128,12 +139,34 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
         switch(view) {
             case 'summary':
                 return <GeneralReport appData={summaryData} grandTotal={grandTotal} reportDate={reportDate} reportMetadata={localMetadata} />;
+            case 'unit-stats':
+                return studentRecords ? <UnitStatisticsReport students={studentRecords} trainingUnits={trainingUnits} reportDate={reportDate} /> : null;
             case 'passed':
-                return <StudentListReport title="DANH SÁCH THÍ SINH ĐẠT SÁT HẠCH LÁI XE Ô TÔ" students={passedStudents} reportType="passed" reportDate={reportDate} />;
+                return <StudentListReport 
+                            title="DANH SÁCH THÍ SINH ĐẠT SÁT HẠCH LÁI XE Ô TÔ" 
+                            students={passedStudents} 
+                            reportType="passed" 
+                            reportDate={reportDate} 
+                            trainingUnits={trainingUnits}
+                        />;
             case 'failed':
-                return <StudentListReport title="DANH SÁCH THÍ SINH TRƯỢT SÁT HẠCH LÁI XE Ô TÔ" students={failedStudents} reportType="failed" reportDate={reportDate} />;
+                return <StudentListReport 
+                            title="DANH SÁCH THÍ SINH TRƯỢT SÁT HẠCH LÁI XE Ô TÔ" 
+                            students={failedStudents} 
+                            reportType="failed" 
+                            reportDate={reportDate} 
+                            trainingUnits={trainingUnits}
+                        />;
             case 'absent':
-                 return <StudentListReport title="DANH SÁCH THÍ SINH VẮNG SÁT HẠCH LÁI XE Ô TÔ" students={absentStudents} reportType="absent" reportDate={reportDate} />;
+                 return <StudentListReport 
+                            title="DANH SÁCH THÍ SINH VẮNG SÁT HẠCH LÁI XE Ô TÔ" 
+                            students={absentStudents} 
+                            reportType="absent" 
+                            reportDate={reportDate} 
+                            trainingUnits={trainingUnits}
+                        />;
+            case 'master-list':
+                return studentRecords ? <MasterStudentListReport students={studentRecords} trainingUnits={trainingUnits} reportDate={reportDate} /> : null;
             default:
                 return null;
         }
@@ -142,7 +175,7 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
     const TabButton: React.FC<{reportView: ReportView; label: string; icon: string}> = ({reportView, label, icon}) => (
         <button
             onClick={() => setView(reportView)}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 ${
+            className={`px-3 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 whitespace-nowrap ${
                 view === reportView 
                     ? 'bg-blue-600 text-white shadow' 
                     : 'text-gray-600 hover:text-blue-600 hover:bg-gray-100'
@@ -155,18 +188,28 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
     return (
         <div className="flex flex-col h-full">
             {/* Control Bar */}
-            <div className="bg-white border-b border-gray-200 p-4 print:hidden flex flex-col xl:flex-row gap-4 justify-between xl:items-center sticky top-0 z-10 shadow-sm">
+            <div className="bg-white border-b border-gray-200 p-3 print:hidden flex flex-col xl:flex-row gap-4 justify-between xl:items-start sticky top-0 z-10 shadow-sm">
                 
                 {/* Left: View Switcher */}
-                <div className="flex flex-wrap items-center gap-2">
-                   <TabButton reportView="summary" label="Báo cáo chung" icon="fa-chart-pie" />
-                   {hasDetailedData && (
-                       <>
-                        <TabButton reportView="passed" label="DS Đạt" icon="fa-circle-check" />
-                        <TabButton reportView="failed" label="DS Trượt" icon="fa-circle-xmark" />
-                        <TabButton reportView="absent" label="DS Vắng" icon="fa-user-slash" />
-                       </>
-                   )}
+                <div className="flex flex-col gap-2 w-full xl:w-auto overflow-x-auto pb-2 xl:pb-0">
+                    {/* Group 1: General Reports */}
+                    <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-100 w-fit">
+                        <span className="text-[10px] uppercase font-bold text-gray-400 px-2">Tổng hợp</span>
+                        <TabButton reportView="summary" label="Biên bản chung" icon="fa-chart-pie" />
+                        {hasDetailedData && <TabButton reportView="unit-stats" label="Thống kê Đơn vị" icon="fa-building-columns" />}
+                    </div>
+
+                    {/* Group 2: Detailed Lists */}
+                    {hasDetailedData && (
+                        <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-100 w-fit">
+                            <span className="text-[10px] uppercase font-bold text-gray-400 px-2">Danh sách</span>
+                            <TabButton reportView="master-list" label="Tất cả (Chi tiết)" icon="fa-list" />
+                            <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                            <TabButton reportView="passed" label="Đạt" icon="fa-circle-check" />
+                            <TabButton reportView="failed" label="Trượt" icon="fa-circle-xmark" />
+                            <TabButton reportView="absent" label="Vắng" icon="fa-user-slash" />
+                        </div>
+                    )}
                 </div>
 
                 {/* Right: Actions */}
@@ -174,41 +217,41 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
                     
                     {/* Mode specific controls */}
                     {(mode === 'preview' || isEditing) ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 bg-blue-50 p-2 rounded-lg border border-blue-100 animate-fade-in">
                              <div className="flex flex-col">
-                                <label className="text-xs text-gray-500 font-semibold mb-0.5">Tên kỳ sát hạch:</label>
+                                <label className="text-[10px] text-blue-600 font-bold uppercase mb-0.5">Tên kỳ sát hạch</label>
                                 <input 
                                     type="text"
                                     value={sessionName}
                                     onChange={(e) => setSessionName(e.target.value)}
-                                    className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-48 sm:w-64 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="px-2 py-1.5 border border-blue-200 rounded-md text-sm w-48 sm:w-64 focus:ring-2 focus:ring-blue-500 outline-none"
                                     placeholder="Nhập tên kỳ..."
                                 />
                              </div>
                              
                              <div className="flex flex-col">
-                                <label className="text-xs text-gray-500 font-semibold mb-0.5">Ngày báo cáo:</label>
+                                <label className="text-[10px] text-blue-600 font-bold uppercase mb-0.5">Ngày báo cáo</label>
                                 <input 
                                     type="date" 
                                     value={reportDate.toISOString().split('T')[0]}
                                     onChange={(e) => setReportDate(new Date(e.target.value))}
-                                    className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-36 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="px-2 py-1.5 border border-blue-200 rounded-md text-sm w-36 focus:ring-2 focus:ring-blue-500 outline-none"
                                 />
                              </div>
 
                              {isEditing && (
                                 <button
                                     onClick={() => setIsMetadataModalOpen(true)}
-                                    className="px-3 py-1.5 mt-4 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm font-medium"
+                                    className="px-3 py-1.5 mt-4 bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-100 text-sm font-medium"
                                     title="Sửa thông tin biên bản"
                                 >
-                                    <i className="fa-solid fa-pen-to-square"></i> Biên bản
+                                    <i className="fa-solid fa-pen-to-square"></i>
                                 </button>
                              )}
                         </div>
                     ) : (
                         // View Only Mode (Not Editing)
-                        <div className="flex items-center gap-4 mr-4">
+                        <div className="flex items-center gap-4 mr-4 bg-gray-50 px-3 py-1 rounded border">
                             <div className="text-right">
                                 <div className="text-xs text-gray-500">Ngày báo cáo</div>
                                 <div className="font-semibold text-sm">{reportDate.toLocaleDateString('vi-VN')}</div>
@@ -236,7 +279,7 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
                         {mode === 'preview' && (
                             <button
                                 onClick={handleSaveClick}
-                                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors flex items-center gap-2 text-sm font-medium shadow-md ml-2 animate-pulse hover:animate-none"
+                                className="px-5 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors flex items-center gap-2 text-sm font-bold shadow-md ml-2 animate-pulse hover:animate-none border-2 border-indigo-500 hover:border-indigo-600"
                             >
                                 <i className="fa-solid fa-floppy-disk"></i> Lưu
                             </button>

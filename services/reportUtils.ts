@@ -76,13 +76,13 @@ export const generateGhiChu = (record: StudentRecord): string => {
 };
 
 // Identify training unit based on student ID
-// NOTE: `units` MUST be provided to this function now, we removed the sync storage call.
+// NOTE: `units` must be provided. Matches student ID start with unit code.
 export const identifyTrainingUnit = (studentId: string | number | undefined, units: TrainingUnit[] = []): string => {
-    if (!studentId) return '';
+    if (!studentId || !units || units.length === 0) return '';
     const sId = studentId.toString().trim();
     
-    // Find the matching unit. We assume the student ID starts with the unit code.
-    // Sort units by code length desc to match specific sub-units first if overlap exists (e.g. 12 vs 123)
+    // Sort units by code length descending to ensure specific codes match first 
+    // (e.g. if we have unit "12" and "123", student "12345" should match "123")
     const sortedUnits = [...units].sort((a, b) => b.code.length - a.code.length);
     
     const matchedUnit = sortedUnits.find(u => sId.startsWith(u.code));

@@ -1,8 +1,9 @@
+
 import type { AppData, LicenseClassData, StudentRecord } from '../types';
 import { getResultStatus, isStudentAbsent, isStudentPassed } from './reportUtils';
 
 // Helper to normalize keys with better matching
-const normalizeRecord = (record: any): StudentRecord => {
+export const normalizeRecord = (record: any): StudentRecord => {
     const normalized: any = {};
     
     // Define mappings for common header variations
@@ -17,7 +18,12 @@ const normalizeRecord = (record: any): StudentRecord => {
         'LÝ THUYẾT': 'LÝ THUYẾT', 'LY THUYET': 'LÝ THUYẾT', 'KẾT QUẢ LÝ THUYẾT': 'LÝ THUYẾT', 'DIỂM LÝ THUYẾT': 'LÝ THUYẾT', 'LT': 'LÝ THUYẾT', 'ĐIỂM LT': 'LÝ THUYẾT', 'KQ LT': 'LÝ THUYẾT',
         'MÔ PHỎNG': 'MÔ PHỎNG', 'MO PHONG': 'MÔ PHỎNG', 'KẾT QUẢ MÔ PHỎNG': 'MÔ PHỎNG', 'DIỂM MÔ PHỎNG': 'MÔ PHỎNG', 'MP': 'MÔ PHỎNG', 'ĐIỂM MP': 'MÔ PHỎNG', 'KQ MP': 'MÔ PHỎNG',
         'SA HÌNH': 'SA HÌNH', 'THỰC HÀNH TRONG HÌNH': 'SA HÌNH', 'KET QUA SA HINH': 'SA HÌNH', 'KẾT QUẢ SA HÌNH': 'SA HÌNH', 'SH': 'SA HÌNH', 'ĐIỂM SH': 'SA HÌNH', 'KQ SH': 'SA HÌNH', 'TH TRONG HÌNH': 'SA HÌNH',
-        'ĐƯỜNG TRƯỜNG': 'ĐƯỜNG TRƯỜNG', 'THỰC HÀNH ĐƯỜNG TRƯỜNG': 'ĐƯỜNG TRƯỜNG', 'KET QUA DUONG TRUONG': 'ĐƯỜNG TRƯỜNG', 'KẾT QUẢ ĐƯỜNG TRƯỜNG': 'ĐƯỜNG TRƯỜNG', 'ĐT': 'ĐƯỜNG TRƯỜNG', 'DT': 'ĐƯỜNG TRƯỜNG', 'ĐIỂM ĐT': 'ĐƯỜNG TRƯỜNG', 'KQ ĐT': 'ĐƯỜNG TRƯỜNG', 'TH ĐƯỜNG TRƯỜNG': 'ĐƯỜNG TRƯỜNG'
+        'ĐƯỜNG TRƯỜNG': 'ĐƯỜNG TRƯỜNG', 'THỰC HÀNH ĐƯỜNG TRƯỜNG': 'ĐƯỜNG TRƯỜNG', 'KET QUA DUONG TRUONG': 'ĐƯỜNG TRƯỜNG', 'KẾT QUẢ ĐƯỜNG TRƯỜNG': 'ĐƯỜNG TRƯỜNG', 'ĐT': 'ĐƯỜNG TRƯỜNG', 'DT': 'ĐƯỜNG TRƯỜNG', 'ĐIỂM ĐT': 'ĐƯỜNG TRƯỜNG', 'KQ ĐT': 'ĐƯỜNG TRƯỜNG', 'TH ĐƯỜNG TRƯỜNG': 'ĐƯỜNG TRƯỜNG',
+
+        // Other common fields
+        'NGÀY SINH': 'NGÀY SINH', 'NGAY SINH': 'NGÀY SINH',
+        'SỐ CHỨNG MINH': 'SỐ CHỨNG MINH', 'SO CHUNG MINH': 'SỐ CHỨNG MINH', 'CCCD': 'SỐ CHỨNG MINH', 'CMND': 'SỐ CHỨNG MINH', 'SỐ CCCD': 'SỐ CHỨNG MINH',
+        'NƠI CƯ TRÚ': 'NƠI CƯ TRÚ', 'NOI CU TRU': 'NƠI CƯ TRÚ', 'ĐỊA CHỈ': 'NƠI CƯ TRÚ'
     };
 
     Object.keys(record).forEach(key => {
@@ -51,9 +57,34 @@ const createNewClassData = (className: string): LicenseClassData => ({
     finalPass: 0,
 });
 
+/**
+ * Normalizes raw Excel data into structured StudentRecord objects.
+ * Handles header mapping and auto-generates missing fields like 'NỘI DUNG THI'.
+ */
+export const normalizeData = (rawRecords: any[]): StudentRecord[] => {
+    return rawRecords.map(raw => {
+        const record = normalizeRecord(raw);
+
+        // --- Auto-generate 'NỘI DUNG THI' if missing ---
+        if (!record['NỘI DUNG THI']) {
+             const parts: string[] = [];
+             // If data exists in these columns, assume they registered for it
+             if (record['LÝ THUYẾT'] !== undefined && record['LÝ THUYẾT'] !== '') parts.push('L');
+             if (record['MÔ PHỎNG'] !== undefined && record['MÔ PHỎNG'] !== '') parts.push('M');
+             if (record['SA HÌNH'] !== undefined && record['SA HÌNH'] !== '') parts.push('H');
+             if (record['ĐƯỜNG TRƯỜNG'] !== undefined && record['ĐƯỜNG TRƯỜNG'] !== '') parts.push('Đ');
+             
+             if (parts.length > 0) {
+                 record['NỘI DUNG THI'] = parts.join('+');
+             }
+        }
+        return record;
+    });
+};
+
 export const processExcelData = (rawRecords: StudentRecord[]): AppData => {
-    // Normalize headers first
-    const records = rawRecords.map(normalizeRecord);
+    // 1. Clean and Normalize Data
+    const records = normalizeData(rawRecords);
 
     // Use two separate objects to store aggregated data.
     const firstTimeData: { [className: string]: LicenseClassData } = {};
@@ -73,20 +104,6 @@ export const processExcelData = (rawRecords: StudentRecord[]): AppData => {
             targetData[className] = createNewClassData(className);
         }
         const classData = targetData[className];
-
-        // --- Auto-generate 'NỘI DUNG THI' if missing ---
-        if (!record['NỘI DUNG THI']) {
-             const parts: string[] = [];
-             // If data exists in these columns, assume they registered for it
-             if (record['LÝ THUYẾT'] !== undefined && record['LÝ THUYẾT'] !== '') parts.push('L');
-             if (record['MÔ PHỎNG'] !== undefined && record['MÔ PHỎNG'] !== '') parts.push('M');
-             if (record['SA HÌNH'] !== undefined && record['SA HÌNH'] !== '') parts.push('H');
-             if (record['ĐƯỜNG TRƯỜNG'] !== undefined && record['ĐƯỜNG TRƯỜNG'] !== '') parts.push('Đ');
-             
-             if (parts.length > 0) {
-                 record['NỘI DUNG THI'] = parts.join('+');
-             }
-        }
 
         // --- Core Calculation Logic ---
 

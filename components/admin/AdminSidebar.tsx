@@ -1,14 +1,18 @@
+
 import React from 'react';
 
 interface AdminSidebarProps {
-    currentView: 'dashboard' | 'create' | 'settings';
-    onChangeView: (view: 'dashboard' | 'create' | 'settings') => void;
+    currentView: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup';
+    onChangeView: (view: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup') => void;
 }
 
 export const AdminSidebar: React.FC<AdminSidebarProps> = ({ currentView, onChangeView }) => {
     const menuItems = [
         { id: 'dashboard', label: 'Danh sách Kỳ sát hạch', icon: 'fa-table-list' },
         { id: 'create', label: 'Tạo Kỳ sát hạch mới', icon: 'fa-circle-plus' },
+        { id: 'student-lookup', label: 'Tra cứu Thí sinh', icon: 'fa-magnifying-glass-user' }, // New Item
+        { id: 'aggregate-report', label: 'Báo cáo Tổng hợp', icon: 'fa-chart-simple' },
+        { id: 'training-units', label: 'Đơn vị Đào tạo', icon: 'fa-building-columns' },
         { id: 'settings', label: 'Cấu hình hệ thống', icon: 'fa-gear' },
     ] as const;
 
@@ -30,7 +34,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ currentView, onChang
                 {menuItems.map(item => (
                     <button
                         key={item.id}
-                        onClick={() => onChangeView(item.id)}
+                        onClick={() => onChangeView(item.id as any)}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                             currentView === item.id 
                                 ? 'bg-blue-600 text-white shadow-md' 
@@ -44,7 +48,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ currentView, onChang
             </nav>
 
             <div className="p-4 border-t border-slate-700 text-xs text-slate-500 text-center">
-                <p>Phiên bản 3.3.2</p>
+                <p>Phiên bản 3.7.0</p>
                 <p>&copy; 2025 Driving Test Manager</p>
             </div>
         </aside>

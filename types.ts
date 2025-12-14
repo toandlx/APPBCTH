@@ -58,6 +58,13 @@ export interface ReportMetadata {
     technicalErrorSBD?: string;
 }
 
+// New Interface for Training Units configuration
+export interface TrainingUnit {
+    id: string;
+    code: string; // Mã đơn vị (VD: 2721)
+    name: string; // Tên đơn vị (VD: Trung tâm Đông Đô)
+}
+
 // New Interface for Database Storage
 export interface SavedSession {
     id: string;
@@ -70,11 +77,5 @@ export interface SavedSession {
     appData: AppData;
     grandTotal: LicenseClassData;
     reportMetadata: ReportMetadata;
-}
-
-// New Interface for Training Units configuration
-export interface TrainingUnit {
-    id: string;
-    code: string; // Mã đơn vị (VD: 2721)
-    name: string; // Tên đơn vị (VD: Trung tâm Đông Đô)
+    trainingUnits: TrainingUnit[]; // Added training units persistence
 }
