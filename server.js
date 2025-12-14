@@ -1,13 +1,10 @@
 
-
-
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
-const { Pool, Client } = require('pg');
+const { Pool } = require('pg');
 
-const SERVER_VERSION = '3.5.3';
+const SERVER_VERSION = '3.7.2'; // Optimized Connection Mode
 console.log(`\n\n==================================================`);
 console.log(`🚀 STARTING SERVER v${SERVER_VERSION}`);
 console.log(`==================================================\n`);
@@ -15,76 +12,76 @@ console.log(`==================================================\n`);
 const app = express();
 const port = process.env.PORT || 8080;
 
-// Config file path
-const CONFIG_FILE = path.join(__dirname, 'db-config.json');
-
 // Global Variables
 let pool = null;
 let isDbConnected = false;
 
-// --- 1. DATABASE CONFIGURATION & INITIALIZATION ---
+// --- 1. DATABASE CONFIGURATION (SECURE SERVER-SIDE) ---
 
-const getDbConfig = () => {
-    // 1. Try reading from local config file first (created via UI)
-    if (fs.existsSync(CONFIG_FILE)) {
-        try {
-            const fileConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-            console.log("📂 Loaded DB config from db-config.json");
-            
-            const config = {
-                user: fileConfig.user,
-                password: fileConfig.password,
-                database: fileConfig.database,
-                max: 10,
-                idleTimeoutMillis: 30000,
-                connectionTimeoutMillis: 20000, // Increased timeout to 20s
-            };
+// ⚠️ CẤU HÌNH KẾT NỐI DATABASE TẠI ĐÂY HOẶC QUA BIẾN MÔI TRƯỜNG
+const DB_CONFIG = {
+    user: process.env.DB_USER || 'postgres',         // Tên đăng nhập DB
+    password: process.env.DB_PASSWORD || 'Appbaocao1!',   // Mật khẩu DB (Sửa tại đây)
+    database: process.env.DB_NAME || 'Appbaocao',    // Tên Database
+    
+    // Tên kết nối Cloud SQL (Unix Socket)
+    // Định dạng: project-id:region:instance-name
+    instanceConnectionName: process.env.INSTANCE_CONNECTION_NAME || 'gen-lang-client-0477980628:asia-southeast1:appbaocao',
+    
+    // Fallback cho chạy local (nếu không có Unix Socket)
+    localHost: process.env.DB_HOST || '127.0.0.1',
+    localPort: 5432
+};
 
-            if (fileConfig.useSocket && fileConfig.instanceConnectionName) {
-                config.host = `/cloudsql/${fileConfig.instanceConnectionName}`;
-            } else {
-                config.host = fileConfig.host;
-                config.port = fileConfig.port ? parseInt(fileConfig.port) : 5432;
-                config.ssl = { rejectUnauthorized: false };
-            }
-            return config;
-        } catch (e) {
-            console.error("⚠️ Error reading db-config.json:", e);
-        }
-    }
+const getPgConfig = () => {
+    // Ưu tiên dùng Unix Socket cho Cloud Run
+    // Kiểm tra xem đang chạy trên môi trường có hỗ trợ Socket không (hoặc mặc định luôn dùng nếu deploy Cloud Run)
+    const useSocket = true; // Mặc định True cho Cloud Run
 
-    // 2. Fallback to Environment Variables (Default Mode)
-    console.log("🌎 Using Environment Variables/Defaults for DB config");
-    const config = {
-        user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD || 'Appbaocao1!',
-        database: process.env.DB_NAME || 'Appbaocao',
-        max: 10,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 20000, // Increased timeout to 20s
+    const baseConfig = {
+        user: DB_CONFIG.user,
+        password: DB_CONFIG.password,
+        database: DB_CONFIG.database,
+        max: 20, // Tăng số lượng kết nối tối đa
+        idleTimeoutMillis: 600000, // 10 phút (Giữ kết nối lâu hơn để tránh bị ngắt)
+        connectionTimeoutMillis: 10000, // 10s chờ kết nối
+        keepAlive: true, // QUAN TRỌNG: Giữ kết nối TCP luôn sống
+        application_name: 'DrivingTestApp_v3.7', // Giúp DBA dễ theo dõi
     };
 
-    const INSTANCE_CONNECTION_NAME = process.env.INSTANCE_CONNECTION_NAME;
-    
-    if (process.env.NODE_ENV === 'production' && INSTANCE_CONNECTION_NAME) {
-        config.host = `/cloudsql/${INSTANCE_CONNECTION_NAME}`;
+    if (useSocket && DB_CONFIG.instanceConnectionName) {
+        console.log(`🔒 Configuring for Unix Socket: ${DB_CONFIG.instanceConnectionName}`);
+        return {
+            ...baseConfig,
+            host: `/cloudsql/${DB_CONFIG.instanceConnectionName}`, // Đường dẫn chuẩn của Cloud SQL Auth Proxy
+        };
     } else {
-        config.host = process.env.DB_HOST || '35.198.214.82';
-        config.port = 5432;
-        config.ssl = { rejectUnauthorized: false };
+        console.log(`💻 Configuring for TCP (Localhost): ${DB_CONFIG.localHost}`);
+        return {
+            ...baseConfig,
+            host: DB_CONFIG.localHost,
+            port: DB_CONFIG.localPort,
+            ssl: { rejectUnauthorized: false }, // Dev mode often needs this for TCP
+        };
     }
-    
-    return config;
 };
 
 const initPool = async () => {
-    if (pool) {
-        await pool.end();
-        console.log("Old connection pool closed.");
+    // Nếu pool đã tồn tại và chưa kết thúc, không cần tạo lại trừ khi force
+    if (pool && !pool.ended) {
+        console.log("⚠️ Pool already active. Checking status...");
+        try {
+            await pool.query('SELECT 1');
+            isDbConnected = true;
+            return;
+        } catch (e) {
+            console.log("⚠️ Existing pool is stale. Recreating...");
+            await pool.end();
+        }
     }
 
-    const config = getDbConfig();
-    console.log(`🔌 Connecting to DB at: ${config.host} (User: ${config.user})`);
+    const config = getPgConfig();
+    console.log(`🔌 Connecting to DB [${config.database}] as user [${config.user}]...`);
     
     pool = new Pool(config);
 
@@ -108,10 +105,9 @@ const initPool = async () => {
         }
     });
     
-    // Listen for pool errors
     pool.on('error', (err, client) => {
         console.error('❌ Unexpected error on idle client', err);
-        isDbConnected = false;
+        // Không set false ngay lập tức, để request tiếp theo tự retry kết nối
     });
 };
 
@@ -139,9 +135,8 @@ const initSchema = async () => {
     try {
         await pool.query(createSessionsTable);
         await pool.query(createTrainingUnitsTable);
-
-        // MIGRATION: Ensure created_at exists (for upgrades from older versions)
-        // This handles the case where the table was created before 'created_at' was added to the schema.
+        
+        // Migration helper
         await pool.query(`
             DO $$
             BEGIN
@@ -151,10 +146,9 @@ const initSchema = async () => {
             END
             $$;
         `);
-
-        console.log("✅ Tables 'sessions' and 'training_units' verified/created.");
+        console.log("✅ Database Schema Verified.");
     } catch (err) {
-        console.error("❌ Error initializing database schema:", err);
+        console.error("❌ Error initializing schema:", err);
     }
 };
 
@@ -168,7 +162,10 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 app.use('/api', (req, res, next) => {
-    console.log(`[API Request] ${req.method} ${req.originalUrl}`);
+    // Log nhẹ hơn để tránh spam log
+    if (req.originalUrl !== '/api/server-status') {
+        console.log(`[API Request] ${req.method} ${req.originalUrl}`);
+    }
     next();
 });
 
@@ -178,82 +175,66 @@ app.get('/_ping', (req, res) => {
     res.status(200).json({ status: 'ok', message: 'pong', version: SERVER_VERSION });
 });
 
-app.get('/api/server-status', (req, res) => {
+app.get('/api/server-status', async (req, res) => {
+    // Heartbeat check thực sự tới DB
+    let dbStatus = isDbConnected;
+    if (pool) {
+        try {
+            await pool.query('SELECT 1');
+            dbStatus = true;
+            isDbConnected = true;
+        } catch (e) {
+            dbStatus = false;
+            isDbConnected = false;
+            console.warn("⚠️ Heartbeat failed: DB connection lost.");
+            // Thử kết nối lại ngầm (background)
+            initPool(); 
+        }
+    }
+
     res.json({
         success: true,
         version: SERVER_VERSION,
-        mode: process.env.NODE_ENV || 'development',
-        dbConnected: isDbConnected
+        mode: 'Production (Persistent)',
+        dbConnected: dbStatus,
+        dbConfig: {
+            user: DB_CONFIG.user,
+            database: DB_CONFIG.database,
+            instance: DB_CONFIG.instanceConnectionName
+        }
     });
 });
 
-// Save DB Config and Reconnect
-app.post('/api/save-db-config', async (req, res) => {
-    try {
-        const config = req.body;
-        if (!config.user || !config.database) {
-            return res.status(400).json({ success: false, error: "Missing required fields" });
-        }
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-        await initPool();
-        res.json({ success: true, message: "Configuration saved and connection reloaded." });
-    } catch (e) {
-        console.error("Save config error:", e);
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
-
-// Test Connection (Ephemeral)
+// Re-check Connection Trigger (Manual retry from UI)
 app.post('/api/check-db-connection', async (req, res) => {
-    const { user, password, database, host, port, instanceConnectionName, useSocket } = req.body;
+    console.log("🛠️ Manual connection check requested...");
     
-    console.log("🛠️ Testing connection...", { user, database, host });
+    // Force re-init pool
+    await initPool();
 
-    const clientConfig = {
-        user,
-        password,
-        database,
-        connectionTimeoutMillis: 5000,
-    };
-
-    if (useSocket && instanceConnectionName) {
-         clientConfig.host = `/cloudsql/${instanceConnectionName}`;
-    } else {
-        clientConfig.host = host;
-        clientConfig.port = port ? parseInt(port) : 5432;
-        clientConfig.ssl = { rejectUnauthorized: false };
-    }
-
-    const client = new Client(clientConfig);
-
-    try {
-        await client.connect();
-        const result = await client.query('SELECT NOW() as now, version() as version');
-        await client.end();
-        
-        res.status(200).json({ 
-            success: true, 
-            message: `Kết nối thành công!`, 
-            details: {
-                version: result.rows[0].version
-            }
-        });
-    } catch (err) {
-        console.error("❌ Test failed:", err.message);
-        res.status(200).json({ success: false, error: err.message });
-    }
+    // Wait a bit for connection to establish
+    setTimeout(() => {
+        if (isDbConnected) {
+            res.status(200).json({ success: true, message: `Kết nối Database ổn định.` });
+        } else {
+            res.status(500).json({ success: false, error: "Không thể kết nối Database. Kiểm tra log Server." });
+        }
+    }, 1000);
 });
 
 // === B. Business Logic ===
 
-// Ensure DB is connected for these routes
-const ensureDb = (req, res, next) => {
+const ensureDb = async (req, res, next) => {
+    // Tự động thử kết nối lại nếu thấy mất kết nối
     if (!pool || !isDbConnected) {
-        // Try to reconnect if global var says disconnected but pool exists
-        if (pool) {
-             // Passive check?
-        }
-        return res.status(503).json({ error: "Database not connected" });
+        console.log("⚠️ DB check failed in middleware. Attempting reconnect...");
+        await initPool();
+        // Chờ nhẹ 500ms
+        await new Promise(r => setTimeout(r, 500));
+    }
+
+    if (!pool) {
+         return res.status(503).json({ error: "Database not connected" });
     }
     next();
 };
@@ -374,7 +355,6 @@ app.delete('/api/training-units/:id', ensureDb, async (req, res) => {
     }
 });
 
-// Fallback for API
 app.all('/api/*', (req, res) => {
     res.status(404).json({ error: `API route not found` });
 });

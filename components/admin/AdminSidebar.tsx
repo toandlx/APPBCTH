@@ -10,7 +10,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ currentView, onChang
     const menuItems = [
         { id: 'dashboard', label: 'Danh sách Kỳ sát hạch', icon: 'fa-table-list' },
         { id: 'create', label: 'Tạo Kỳ sát hạch mới', icon: 'fa-circle-plus' },
-        { id: 'student-lookup', label: 'Tra cứu Thí sinh', icon: 'fa-magnifying-glass-user' }, // New Item
+        { id: 'student-lookup', label: 'Tra cứu Thí sinh', icon: 'fa-magnifying-glass' },
         { id: 'aggregate-report', label: 'Báo cáo Tổng hợp', icon: 'fa-chart-simple' },
         { id: 'training-units', label: 'Đơn vị Đào tạo', icon: 'fa-building-columns' },
         { id: 'settings', label: 'Cấu hình hệ thống', icon: 'fa-gear' },
@@ -48,7 +48,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ currentView, onChang
             </nav>
 
             <div className="p-4 border-t border-slate-700 text-xs text-slate-500 text-center">
-                <p>Phiên bản 3.7.0</p>
+                <p>Phiên bản 3.7.1</p>
                 <p>&copy; 2025 Driving Test Manager</p>
             </div>
         </aside>

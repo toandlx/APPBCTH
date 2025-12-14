@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { DataInputPage } from './components/DataInputPage';
 import { ReportDashboardPage } from './components/reports/ReportDashboardPage';
@@ -54,32 +55,52 @@ const App: React.FC = () => {
         setTrainingUnits(units);
     };
 
+    const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+        setToast({ message, type });
+    };
+
+    // --- HEARTBEAT & INIT LOGIC ---
     useEffect(() => {
-        const init = async () => {
-             // 1. Check Server Connection
+        const checkServer = async () => {
              try {
                 const res = await fetch('/api/server-status');
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.dbConnected) {
-                        showToast('Đã kết nối Cloud SQL thành công!', 'success');
-                    } else {
-                        showToast('Không thể kết nối Cloud SQL. Đang dùng chế độ Offline.', 'info');
-                    }
+                    return data.dbConnected;
                 }
              } catch (e) {
-                 showToast('Mất kết nối Server. Đang dùng chế độ Offline.', 'info');
+                 return false;
+             }
+             return false;
+        };
+
+        const init = async () => {
+             // 1. Initial Check
+             const isConnected = await checkServer();
+             if (isConnected) {
+                 showToast('Đã kết nối Cloud SQL thành công!', 'success');
+             } else {
+                 showToast('Chế độ Offline (Mất kết nối Server)', 'info');
              }
 
              // 2. Load Data
              await loadData();
         };
-        init();
-    }, []);
 
-    const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
-        setToast({ message, type });
-    };
+        init();
+
+        // 3. Setup Heartbeat Interval (Keep Alive)
+        // Ping server every 4 minutes (240000ms) to prevent Cloud Run scale-to-zero and DB timeout
+        const intervalId = setInterval(async () => {
+            const isAlive = await checkServer();
+            if (!isAlive) {
+                console.warn("Heartbeat missed. Trying to wake up DB...");
+                // Silent retry or user notification if critical
+            }
+        }, 4 * 60 * 1000); 
+
+        return () => clearInterval(intervalId);
+    }, []);
 
     const handleExcelSubmit = (rawRecords: StudentRecord[]) => {
         setIsLoading(true);
