@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, TrainingUnit } from '../../types';
 import { GeneralReport } from './GeneralReport';
@@ -24,6 +25,9 @@ interface ReportDashboardPageProps {
     
     // Props for training units
     trainingUnits?: TrainingUnit[];
+    
+    // Inline Edit Prop
+    onStudentUpdate?: (id: string, field: string, value: any) => void;
 }
 
 type ReportView = 'summary' | 'unit-stats' | 'passed' | 'failed' | 'absent' | 'master-list';
@@ -38,7 +42,8 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
     onUpdateSession,
     initialReportDate,
     sessionName: initialSessionName,
-    trainingUnits = []
+    trainingUnits = [],
+    onStudentUpdate
 }) => {
     const [view, setView] = useState<ReportView>('summary');
     const [reportDate, setReportDate] = useState<Date>(initialReportDate ? new Date(initialReportDate) : new Date());
@@ -148,6 +153,7 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
                             reportType="passed" 
                             reportDate={reportDate} 
                             trainingUnits={trainingUnits}
+                            onStudentUpdate={onStudentUpdate}
                         />;
             case 'failed':
                 return <StudentListReport 
@@ -156,6 +162,7 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
                             reportType="failed" 
                             reportDate={reportDate} 
                             trainingUnits={trainingUnits}
+                            onStudentUpdate={onStudentUpdate}
                         />;
             case 'absent':
                  return <StudentListReport 
@@ -164,6 +171,7 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
                             reportType="absent" 
                             reportDate={reportDate} 
                             trainingUnits={trainingUnits}
+                            onStudentUpdate={onStudentUpdate}
                         />;
             case 'master-list':
                 return studentRecords ? <MasterStudentListReport students={studentRecords} trainingUnits={trainingUnits} reportDate={reportDate} /> : null;
@@ -178,7 +186,7 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
             className={`px-3 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2 whitespace-nowrap ${
                 view === reportView 
                     ? 'bg-blue-600 text-white shadow' 
-                    : 'text-gray-600 hover:text-blue-600 hover:bg-gray-100'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700'
             }`}
         >
             <i className={`fa-solid ${icon}`}></i> {label}
@@ -186,14 +194,14 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
     );
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
             {/* Control Bar */}
-            <div className="bg-white border-b border-gray-200 p-3 print:hidden flex flex-col xl:flex-row gap-4 justify-between xl:items-start sticky top-0 z-10 shadow-sm">
+            <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3 print:hidden flex flex-col xl:flex-row gap-4 justify-between xl:items-start sticky top-0 z-10 shadow-sm">
                 
                 {/* Left: View Switcher */}
                 <div className="flex flex-col gap-2 w-full xl:w-auto overflow-x-auto pb-2 xl:pb-0">
                     {/* Group 1: General Reports */}
-                    <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-100 w-fit">
+                    <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-700 p-1 rounded-lg border border-gray-100 dark:border-gray-600 w-fit">
                         <span className="text-[10px] uppercase font-bold text-gray-400 px-2">Tổng hợp</span>
                         <TabButton reportView="summary" label="Biên bản chung" icon="fa-chart-pie" />
                         {hasDetailedData && <TabButton reportView="unit-stats" label="Thống kê Đơn vị" icon="fa-building-columns" />}
@@ -201,10 +209,10 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
 
                     {/* Group 2: Detailed Lists */}
                     {hasDetailedData && (
-                        <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-lg border border-gray-100 w-fit">
+                        <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-700 p-1 rounded-lg border border-gray-100 dark:border-gray-600 w-fit">
                             <span className="text-[10px] uppercase font-bold text-gray-400 px-2">Danh sách</span>
                             <TabButton reportView="master-list" label="Tất cả (Chi tiết)" icon="fa-list" />
-                            <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                            <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
                             <TabButton reportView="passed" label="Đạt" icon="fa-circle-check" />
                             <TabButton reportView="failed" label="Trượt" icon="fa-circle-xmark" />
                             <TabButton reportView="absent" label="Vắng" icon="fa-user-slash" />
@@ -217,32 +225,32 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
                     
                     {/* Mode specific controls */}
                     {(mode === 'preview' || isEditing) ? (
-                        <div className="flex items-center gap-2 bg-blue-50 p-2 rounded-lg border border-blue-100 animate-fade-in">
+                        <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg border border-blue-100 dark:border-blue-800 animate-fade-in">
                              <div className="flex flex-col">
-                                <label className="text-[10px] text-blue-600 font-bold uppercase mb-0.5">Tên kỳ sát hạch</label>
+                                <label className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase mb-0.5">Tên kỳ sát hạch</label>
                                 <input 
                                     type="text"
                                     value={sessionName}
                                     onChange={(e) => setSessionName(e.target.value)}
-                                    className="px-2 py-1.5 border border-blue-200 rounded-md text-sm w-48 sm:w-64 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="px-2 py-1.5 border border-blue-200 dark:border-blue-700 rounded-md text-sm w-48 sm:w-64 focus:ring-2 focus:ring-blue-500 outline-none dark:bg-gray-800 dark:text-white"
                                     placeholder="Nhập tên kỳ..."
                                 />
                              </div>
                              
                              <div className="flex flex-col">
-                                <label className="text-[10px] text-blue-600 font-bold uppercase mb-0.5">Ngày báo cáo</label>
+                                <label className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase mb-0.5">Ngày báo cáo</label>
                                 <input 
                                     type="date" 
                                     value={reportDate.toISOString().split('T')[0]}
                                     onChange={(e) => setReportDate(new Date(e.target.value))}
-                                    className="px-2 py-1.5 border border-blue-200 rounded-md text-sm w-36 focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="px-2 py-1.5 border border-blue-200 dark:border-blue-700 rounded-md text-sm w-36 focus:ring-2 focus:ring-blue-500 outline-none dark:bg-gray-800 dark:text-white"
                                 />
                              </div>
 
                              {isEditing && (
                                 <button
                                     onClick={() => setIsMetadataModalOpen(true)}
-                                    className="px-3 py-1.5 mt-4 bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-100 text-sm font-medium"
+                                    className="px-3 py-1.5 mt-4 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-100 dark:hover:bg-gray-600 text-sm font-medium"
                                     title="Sửa thông tin biên bản"
                                 >
                                     <i className="fa-solid fa-pen-to-square"></i>
@@ -251,10 +259,10 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
                         </div>
                     ) : (
                         // View Only Mode (Not Editing)
-                        <div className="flex items-center gap-4 mr-4 bg-gray-50 px-3 py-1 rounded border">
+                        <div className="flex items-center gap-4 mr-4 bg-gray-50 dark:bg-gray-700 px-3 py-1 rounded border dark:border-gray-600">
                             <div className="text-right">
-                                <div className="text-xs text-gray-500">Ngày báo cáo</div>
-                                <div className="font-semibold text-sm">{reportDate.toLocaleDateString('vi-VN')}</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">Ngày báo cáo</div>
+                                <div className="font-semibold text-sm dark:text-white">{reportDate.toLocaleDateString('vi-VN')}</div>
                             </div>
                         </div>
                     )}
@@ -315,8 +323,8 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
             </div>
             
             {/* Report Content */}
-            <div className="report-content flex-1 p-8 bg-gray-50 overflow-y-auto print:p-0 print:bg-white">
-                 <div className="max-w-[297mm] mx-auto bg-white shadow-lg p-10 min-h-[210mm] print:shadow-none print:p-0">
+            <div className="report-content flex-1 p-8 bg-gray-50 dark:bg-gray-900 overflow-y-auto print:p-0 print:bg-white">
+                 <div className="max-w-[297mm] mx-auto bg-white shadow-lg p-10 min-h-[210mm] print:shadow-none print:p-0 transition-colors">
                     {renderActiveReport()}
                  </div>
             </div>

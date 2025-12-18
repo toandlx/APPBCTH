@@ -8,7 +8,15 @@ interface StudentHistoryItem {
     sessionName: string;
     reportDate: string;
     studentData: StudentRecord;
+    // Pre-calculated fields for faster filtering
+    normalizedName: string;
+    normalizedId: string;
+    normalizedSbd: string;
+    normalizedCccd: string;
+    timestamp: number;
 }
+
+const ITEMS_PER_PAGE = 20;
 
 export const StudentLookupPage: React.FC = () => {
     const [sessions, setSessions] = useState<SavedSession[]>([]);
@@ -16,10 +24,15 @@ export const StudentLookupPage: React.FC = () => {
 
     // Filter States
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(''); // New: Debounce state
+    
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [selectedClass, setSelectedClass] = useState('all');
     const [selectedStatus, setSelectedStatus] = useState<'all' | 'passed' | 'failed' | 'absent'>('all');
+
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
 
     // Load data once
     useEffect(() => {
@@ -37,80 +50,120 @@ export const StudentLookupPage: React.FC = () => {
         loadData();
     }, []);
 
-    // Extract unique license classes for filter dropdown
-    const uniqueClasses = useMemo(() => {
-        const classes = new Set<string>();
-        sessions.forEach(session => {
-            session.studentRecords?.forEach(s => {
-                if (s['HẠNG GPLX']) classes.add(s['HẠNG GPLX'].toString().trim());
-            });
-        });
-        return Array.from(classes).sort();
-    }, [sessions]);
+    // Debounce Logic: Update debouncedSearchTerm 300ms after searchTerm stops changing
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm);
+        }, 300);
+        return () => clearTimeout(handler);
+    }, [searchTerm]);
 
-    // Core Filter Logic
-    const searchResults = useMemo(() => {
-        // Optimization: If no data, return empty
+    // Reset pagination when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [debouncedSearchTerm, dateFrom, dateTo, selectedClass, selectedStatus]);
+
+    // OPTIMIZATION 1: Flatten and normalize data ONCE when sessions change.
+    // This removes the O(N^2) loop from the render/filter cycle.
+    const allStudentItems = useMemo(() => {
         if (sessions.length === 0) return [];
-
-        let results: StudentHistoryItem[] = [];
-        const term = searchTerm.toLowerCase().trim();
-        const fromDate = dateFrom ? new Date(dateFrom).getTime() : 0;
-        const toDate = dateTo ? new Date(dateTo).getTime() + (86400000 - 1) : Infinity; // End of day
-
+        
+        const flattened: StudentHistoryItem[] = [];
+        
         sessions.forEach(session => {
-            // 1. Filter by Date first (Session Level)
-            const sessionTime = new Date(session.reportDate).getTime();
-            if (sessionTime < fromDate || sessionTime > toDate) return;
-
             if (!session.studentRecords) return;
+            
+            // Pre-calculate timestamp for date filtering
+            const sessionTime = new Date(session.reportDate).getTime();
 
             session.studentRecords.forEach(student => {
-                // 2. Filter by License Class
-                if (selectedClass !== 'all' && student['HẠNG GPLX'] !== selectedClass) return;
-
-                // 3. Filter by Status
-                const isAbsent = isStudentAbsent(student);
-                const isPass = isStudentPassed(student);
-                
-                if (selectedStatus === 'passed' && !isPass) return;
-                if (selectedStatus === 'absent' && !isAbsent) return;
-                if (selectedStatus === 'failed' && (isPass || isAbsent)) return; // Failed is neither passed nor absent
-
-                // 4. Filter by Search Term (Name, ID, CCCD, SBD)
-                if (term) {
-                    const name = (student['HỌ VÀ TÊN'] || '').toLowerCase();
-                    const studentId = (student['MÃ HỌC VIÊN'] || '').toString().toLowerCase();
-                    const cccd = (student['SỐ CHỨNG MINH'] || '').toString().toLowerCase();
-                    const sbd = (student['SỐ BÁO DANH'] || '').toString().toLowerCase();
-
-                    if (!name.includes(term) && !studentId.includes(term) && !cccd.includes(term) && sbd !== term) {
-                        return;
-                    }
-                }
-
-                results.push({
+                flattened.push({
                     sessionName: session.name,
                     reportDate: session.reportDate,
-                    studentData: student
+                    studentData: student,
+                    timestamp: sessionTime,
+                    // Pre-normalize strings for faster search
+                    normalizedName: (student['HỌ VÀ TÊN'] || '').toLowerCase(),
+                    normalizedId: (student['MÃ HỌC VIÊN'] || '').toString().toLowerCase(),
+                    normalizedSbd: (student['SỐ BÁO DANH'] || '').toString().toLowerCase(),
+                    normalizedCccd: (student['SỐ CHỨNG MINH'] || '').toString().toLowerCase(),
                 });
             });
         });
 
         // Sort by date descending (latest exam first)
-        return results.sort((a, b) => new Date(b.reportDate).getTime() - new Date(a.reportDate).getTime());
-    }, [sessions, searchTerm, dateFrom, dateTo, selectedClass, selectedStatus]);
+        return flattened.sort((a, b) => b.timestamp - a.timestamp);
+    }, [sessions]);
+
+    // Extract unique license classes for filter dropdown from the pre-calculated list
+    const uniqueClasses = useMemo(() => {
+        const classes = new Set<string>();
+        allStudentItems.forEach(item => {
+            if (item.studentData['HẠNG GPLX']) {
+                classes.add(item.studentData['HẠNG GPLX'].toString().trim());
+            }
+        });
+        return Array.from(classes).sort();
+    }, [allStudentItems]);
+
+    // OPTIMIZATION 2: Efficient Filtering on the flat list
+    const filteredResults = useMemo(() => {
+        // Prepare filter values
+        const term = debouncedSearchTerm.toLowerCase().trim();
+        const fromDate = dateFrom ? new Date(dateFrom).getTime() : 0;
+        const toDate = dateTo ? new Date(dateTo).getTime() + (86400000 - 1) : Infinity;
+
+        return allStudentItems.filter(item => {
+            // 1. Date Filter (Fastest check)
+            if (item.timestamp < fromDate || item.timestamp > toDate) return false;
+
+            // 2. Class Filter
+            if (selectedClass !== 'all' && item.studentData['HẠNG GPLX'] !== selectedClass) return false;
+
+            // 3. Status Filter
+            if (selectedStatus !== 'all') {
+                const isAbsent = isStudentAbsent(item.studentData);
+                const isPass = isStudentPassed(item.studentData);
+                
+                if (selectedStatus === 'passed' && !isPass) return false;
+                if (selectedStatus === 'absent' && !isAbsent) return false;
+                if (selectedStatus === 'failed' && (isPass || isAbsent)) return false; 
+            }
+
+            // 4. Search Term (Using pre-normalized fields)
+            if (term) {
+                if (
+                    !item.normalizedName.includes(term) && 
+                    !item.normalizedId.includes(term) && 
+                    !item.normalizedCccd.includes(term) && 
+                    item.normalizedSbd !== term
+                ) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+    }, [allStudentItems, debouncedSearchTerm, dateFrom, dateTo, selectedClass, selectedStatus]);
+
+    // OPTIMIZATION 3: Pagination Logic
+    const totalPages = Math.ceil(filteredResults.length / ITEMS_PER_PAGE);
+    const paginatedData = useMemo(() => {
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        return filteredResults.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+    }, [filteredResults, currentPage]);
 
     // Quick Stats Calculation
     const stats = useMemo(() => {
         let pass = 0, fail = 0, absent = 0;
-        searchResults.forEach(item => {
+        // Calculate stats based on FULL filtered results, not just the current page
+        filteredResults.forEach(item => {
             if (isStudentAbsent(item.studentData)) absent++;
             else if (isStudentPassed(item.studentData)) pass++;
             else fail++;
         });
-        return { total: searchResults.length, pass, fail, absent };
-    }, [searchResults]);
+        return { total: filteredResults.length, pass, fail, absent };
+    }, [filteredResults]);
 
     const handleResetFilters = () => {
         setSearchTerm('');
@@ -155,6 +208,10 @@ export const StudentLookupPage: React.FC = () => {
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
+                        {/* Loading indicator for debounce */}
+                        {searchTerm !== debouncedSearchTerm && (
+                            <i className="fa-solid fa-spinner animate-spin absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                        )}
                     </div>
                     {(searchTerm || dateFrom || dateTo || selectedClass !== 'all' || selectedStatus !== 'all') && (
                         <button 
@@ -232,7 +289,7 @@ export const StudentLookupPage: React.FC = () => {
             ) : (
                 <>
                     {/* Stats Bar */}
-                    {searchResults.length > 0 && (
+                    {filteredResults.length > 0 && (
                         <div className="flex flex-wrap items-center gap-4 mb-4 text-sm">
                             <span className="font-bold text-gray-700">Kết quả: {stats.total} thí sinh</span>
                             <div className="h-4 w-px bg-gray-300 hidden sm:block"></div>
@@ -242,15 +299,19 @@ export const StudentLookupPage: React.FC = () => {
                         </div>
                     )}
 
-                    {searchResults.length > 0 ? (
+                    {filteredResults.length > 0 ? (
+                        <>
                         <div className="space-y-4">
-                            {searchResults.map((item, index) => {
+                            {paginatedData.map((item, index) => {
                                 const s = item.studentData;
                                 const isPass = isStudentPassed(s);
                                 const isAbsent = isStudentAbsent(s);
 
+                                // Use a stable key if possible (SBD + Session Report Date + Index) to prevent re-render glitches
+                                const uniqueKey = `${s['SỐ BÁO DANH']}_${item.reportDate}_${index}`;
+
                                 return (
-                                    <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
+                                    <div key={uniqueKey} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-all duration-200">
                                         <div className="flex flex-col md:flex-row">
                                             {/* Left: Basic Info */}
                                             <div className="p-4 md:w-1/3 border-b md:border-b-0 md:border-r border-gray-100 bg-gray-50/30">
@@ -322,6 +383,32 @@ export const StudentLookupPage: React.FC = () => {
                                 );
                             })}
                         </div>
+                        
+                        {/* Pagination Controls */}
+                        {totalPages > 1 && (
+                            <div className="mt-8 flex justify-center items-center gap-2">
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                    disabled={currentPage === 1}
+                                    className="px-3 py-2 bg-white border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <i className="fa-solid fa-chevron-left"></i>
+                                </button>
+                                
+                                <span className="text-sm text-gray-600 px-2">
+                                    Trang <strong>{currentPage}</strong> / {totalPages}
+                                </span>
+
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                    disabled={currentPage === totalPages}
+                                    className="px-3 py-2 bg-white border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <i className="fa-solid fa-chevron-right"></i>
+                                </button>
+                            </div>
+                        )}
+                        </>
                     ) : (
                         <div className="text-center py-16 bg-white rounded-xl border border-dashed border-gray-300">
                             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">

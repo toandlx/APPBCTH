@@ -1,5 +1,4 @@
 
-
 export interface TestResult {
   total: number;
   pass: number;
@@ -42,6 +41,8 @@ export interface StudentRecord {
   'MÔ PHỎNG': string;
   'SA HÌNH': string;
   'ĐƯỜNG TRƯỜNG': string;
+  // UI Only fields for validation
+  _historyWarnings?: string[]; 
 }
 
 export interface Attendee {
@@ -58,24 +59,20 @@ export interface ReportMetadata {
     technicalErrorSBD?: string;
 }
 
-// New Interface for Training Units configuration
 export interface TrainingUnit {
     id: string;
-    code: string; // Mã đơn vị (VD: 2721)
-    name: string; // Tên đơn vị (VD: Trung tâm Đông Đô)
+    code: string; 
+    name: string; 
 }
 
-// New Interface for Database Storage
 export interface SavedSession {
     id: string;
-    name: string; // Tên kỳ sát hạch (VD: Sát hạch ngày 28/10/2025)
+    name: string; 
     createdAt: number;
-    reportDate: string; // ISO string date
-    
-    // Stored Data
+    reportDate: string; 
     studentRecords: StudentRecord[];
     appData: AppData;
     grandTotal: LicenseClassData;
     reportMetadata: ReportMetadata;
-    trainingUnits: TrainingUnit[]; // Added training units persistence
+    trainingUnits: TrainingUnit[];
 }

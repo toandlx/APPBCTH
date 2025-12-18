@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { StudentRecord, TrainingUnit } from '../../types';
 import { generateClassSummaryString, generateGhiChu, identifyTrainingUnit } from '../../services/reportUtils';
 
@@ -9,12 +9,60 @@ interface StudentListReportProps {
     reportType: 'passed' | 'failed' | 'absent';
     reportDate: Date;
     trainingUnits?: TrainingUnit[];
+    onStudentUpdate?: (id: string, field: string, value: any) => void;
 }
 
-const tableHeaderCellStyle = "p-2 border border-black font-bold text-center text-sm";
+const tableHeaderCellStyle = "p-2 border border-black font-bold text-center text-sm bg-gray-100 print:bg-transparent";
 const tableCellStyle = "p-2 border border-black text-center text-sm";
 
-export const StudentListReport: React.FC<StudentListReportProps> = ({ title, students, reportType, reportDate, trainingUnits = [] }) => {
+// Helper for Inline Editing Cell
+const EditableCell = ({ value, id, field, onUpdate }: { value: any, id: string, field: string, onUpdate?: (id: string, field: string, value: any) => void }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [localValue, setLocalValue] = useState(value);
+
+    const handleDoubleClick = () => {
+        if (onUpdate) setIsEditing(true);
+    };
+
+    const handleBlur = () => {
+        setIsEditing(false);
+        if (localValue !== value && onUpdate) {
+            onUpdate(id, field, localValue);
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleBlur();
+        }
+    };
+
+    if (isEditing) {
+        return (
+            <input 
+                type="text" 
+                value={localValue} 
+                onChange={(e) => setLocalValue(e.target.value)}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                className="w-full p-1 text-center bg-yellow-50 border border-blue-500 outline-none"
+                autoFocus
+            />
+        );
+    }
+
+    return (
+        <div 
+            onDoubleClick={handleDoubleClick} 
+            className={onUpdate ? "cursor-pointer hover:bg-yellow-50 transition-colors h-full flex items-center justify-center min-h-[24px]" : ""}
+            title={onUpdate ? "Click đúp để sửa" : ""}
+        >
+            {value}
+        </div>
+    );
+};
+
+export const StudentListReport: React.FC<StudentListReportProps> = ({ title, students, reportType, reportDate, trainingUnits = [], onStudentUpdate }) => {
     
     const classSummary = useMemo(() => generateClassSummaryString(students), [students]);
 
@@ -61,7 +109,63 @@ export const StudentListReport: React.FC<StudentListReportProps> = ({ title, stu
         </div>
     );
 
+    // --- MOBILE CARD VIEW ---
+    const renderMobileCards = () => (
+        <div className="grid grid-cols-1 gap-4 md:hidden print:hidden">
+            {students.map((s, index) => (
+                <div key={index} className="bg-white border rounded-lg shadow-sm p-4 space-y-2 border-gray-200">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <span className="text-xs font-bold text-gray-500 uppercase">Họ và tên</span>
+                            <h3 className="font-bold text-gray-800 text-lg">{s['HỌ VÀ TÊN']}</h3>
+                        </div>
+                        <div className="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-1 rounded">SBD: {s['SỐ BÁO DANH']}</div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                            <span className="text-xs text-gray-400 block">Ngày sinh</span>
+                            <span>{formatDate(s['NGÀY SINH'])}</span>
+                        </div>
+                        <div>
+                            <span className="text-xs text-gray-400 block">Hạng</span>
+                            <span className="font-bold">{s['HẠNG GPLX']}</span>
+                        </div>
+                        <div>
+                            <span className="text-xs text-gray-400 block">Mã HV</span>
+                            <span>{s['MÃ HỌC VIÊN']}</span>
+                        </div>
+                        <div>
+                            <span className="text-xs text-gray-400 block">CCCD</span>
+                            <span>{s['SỐ CHỨNG MINH']}</span>
+                        </div>
+                    </div>
+
+                    <div className="border-t pt-2 mt-2">
+                        <span className="text-xs text-gray-400 block mb-1">Kết quả</span>
+                        <div className="grid grid-cols-4 gap-1 text-center text-xs">
+                            <div className={`${(s['LÝ THUYẾT'] === 'ĐẠT' || s['LÝ THUYẾT'] === 'Đạt') ? 'bg-green-100 text-green-700' : 'bg-gray-100'} rounded py-1`}>
+                                LT: {s['LÝ THUYẾT'] || '-'}
+                            </div>
+                            <div className={`${(s['MÔ PHỎNG'] === 'ĐẠT' || s['MÔ PHỎNG'] === 'Đạt') ? 'bg-green-100 text-green-700' : 'bg-gray-100'} rounded py-1`}>
+                                MP: {s['MÔ PHỎNG'] || '-'}
+                            </div>
+                            <div className={`${(s['SA HÌNH'] === 'ĐẠT' || s['SA HÌNH'] === 'Đạt') ? 'bg-green-100 text-green-700' : 'bg-gray-100'} rounded py-1`}>
+                                SH: {s['SA HÌNH'] || '-'}
+                            </div>
+                            <div className={`${(s['ĐƯỜNG TRƯỜNG'] === 'ĐẠT' || s['ĐƯỜNG TRƯỜNG'] === 'Đạt') ? 'bg-green-100 text-green-700' : 'bg-gray-100'} rounded py-1`}>
+                                ĐT: {s['ĐƯỜNG TRƯỜNG'] || '-'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+
+    // --- DESKTOP TABLE VIEW ---
     const renderPassedTable = () => (
+        <div className="hidden md:block">
         <table className="w-full border-collapse border border-black">
             <thead>
                 <tr>
@@ -80,9 +184,23 @@ export const StudentListReport: React.FC<StudentListReportProps> = ({ title, stu
                     <tr key={s['SỐ BÁO DANH'] || index}>
                         <td className={tableCellStyle}>{s['SỐ BÁO DANH']}</td>
                         <td className={tableCellStyle}>{s['MÃ HỌC VIÊN']}</td>
-                        <td className={`${tableCellStyle} text-left`}>{s['HỌ VÀ TÊN']}</td>
+                        <td className={`${tableCellStyle} text-left`}>
+                            <EditableCell 
+                                value={s['HỌ VÀ TÊN']} 
+                                id={String(s['SỐ BÁO DANH'])} 
+                                field="HỌ VÀ TÊN" 
+                                onUpdate={onStudentUpdate} 
+                            />
+                        </td>
                         <td className={tableCellStyle}>{formatDate(s['NGÀY SINH'])}</td>
-                        <td className={tableCellStyle}>{s['SỐ CHỨNG MINH'] || ''}</td>
+                        <td className={tableCellStyle}>
+                            <EditableCell 
+                                value={s['SỐ CHỨNG MINH'] || ''} 
+                                id={String(s['SỐ BÁO DANH'])} 
+                                field="SỐ CHỨNG MINH" 
+                                onUpdate={onStudentUpdate} 
+                            />
+                        </td>
                         <td className={tableCellStyle}>{s['HẠNG GPLX']}</td>
                         <td className={tableCellStyle}>{identifyTrainingUnit(s['MÃ HỌC VIÊN'], trainingUnits)}</td>
                         <td className={tableCellStyle}>{generateGhiChu(s)}</td>
@@ -90,9 +208,11 @@ export const StudentListReport: React.FC<StudentListReportProps> = ({ title, stu
                 ))}
             </tbody>
         </table>
+        </div>
     );
 
     const renderFailedOrAbsentTable = () => (
+         <div className="hidden md:block">
          <table className="w-full border-collapse border border-black">
             <thead>
                 <tr>
@@ -117,27 +237,81 @@ export const StudentListReport: React.FC<StudentListReportProps> = ({ title, stu
                     <tr key={s['SỐ BÁO DANH'] || index}>
                         <td className={tableCellStyle}>{s['SỐ BÁO DANH']}</td>
                         <td className={tableCellStyle}>{s['MÃ HỌC VIÊN']}</td>
-                        <td className={`${tableCellStyle} text-left`}>{s['HỌ VÀ TÊN']}</td>
+                        <td className={`${tableCellStyle} text-left`}>
+                            <EditableCell 
+                                value={s['HỌ VÀ TÊN']} 
+                                id={String(s['SỐ BÁO DANH'])} 
+                                field="HỌ VÀ TÊN" 
+                                onUpdate={onStudentUpdate} 
+                            />
+                        </td>
                         <td className={tableCellStyle}>{formatDate(s['NGÀY SINH'])}</td>
                         <td className={tableCellStyle}>{s['HẠNG GPLX']}</td>
                         <td className={tableCellStyle}>{identifyTrainingUnit(s['MÃ HỌC VIÊN'], trainingUnits)}</td>
-                        <td className={tableCellStyle}>{reportType === 'absent' ? 'Vắng' : (s['LÝ THUYẾT'] || '')}</td>
-                        <td className={tableCellStyle}>{reportType === 'absent' ? 'Vắng' : (s['MÔ PHỎNG'] || '')}</td>
-                        <td className={tableCellStyle}>{reportType === 'absent' ? 'Vắng' : (s['SA HÌNH'] || '')}</td>
-                        <td className={tableCellStyle}>{reportType === 'absent' ? 'Vắng' : (s['ĐƯỜNG TRƯỜNG'] || '')}</td>
+                        
+                        {/* Inline Editing for Scores */}
+                        <td className={tableCellStyle}>
+                            {reportType === 'absent' ? 'Vắng' : (
+                                <EditableCell 
+                                    value={s['LÝ THUYẾT'] || ''} 
+                                    id={String(s['SỐ BÁO DANH'])} 
+                                    field="LÝ THUYẾT" 
+                                    onUpdate={onStudentUpdate} 
+                                />
+                            )}
+                        </td>
+                        <td className={tableCellStyle}>
+                             {reportType === 'absent' ? 'Vắng' : (
+                                <EditableCell 
+                                    value={s['MÔ PHỎNG'] || ''} 
+                                    id={String(s['SỐ BÁO DANH'])} 
+                                    field="MÔ PHỎNG" 
+                                    onUpdate={onStudentUpdate} 
+                                />
+                            )}
+                        </td>
+                        <td className={tableCellStyle}>
+                             {reportType === 'absent' ? 'Vắng' : (
+                                <EditableCell 
+                                    value={s['SA HÌNH'] || ''} 
+                                    id={String(s['SỐ BÁO DANH'])} 
+                                    field="SA HÌNH" 
+                                    onUpdate={onStudentUpdate} 
+                                />
+                            )}
+                        </td>
+                        <td className={tableCellStyle}>
+                             {reportType === 'absent' ? 'Vắng' : (
+                                <EditableCell 
+                                    value={s['ĐƯỜNG TRƯỜNG'] || ''} 
+                                    id={String(s['SỐ BÁO DANH'])} 
+                                    field="ĐƯỜNG TRƯỜNG" 
+                                    onUpdate={onStudentUpdate} 
+                                />
+                            )}
+                        </td>
                         <td className={tableCellStyle}></td>
                     </tr>
                 ))}
             </tbody>
         </table>
+        </div>
     );
-
 
     return (
         <div className="p-2">
             {renderHeader()}
             {renderSubHeader()}
+            
+            {/* Mobile View */}
+            {renderMobileCards()}
+            
+            {/* Desktop View */}
             {reportType === 'passed' ? renderPassedTable() : renderFailedOrAbsentTable()}
+
+            <div className="mt-4 text-xs text-gray-500 italic print:hidden text-center md:text-left">
+                * Click đúp vào ô dữ liệu (Tên, CCCD, Điểm thi) để chỉnh sửa trực tiếp.
+            </div>
         </div>
     );
 };
