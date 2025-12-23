@@ -2,8 +2,8 @@
 import React from 'react';
 
 interface AdminSidebarProps {
-    currentView: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup' | 'content-validation';
-    onChangeView: (view: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup' | 'content-validation') => void;
+    currentView: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup';
+    onChangeView: (view: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup') => void;
     darkMode: boolean;
     onToggleDarkMode: () => void;
 }
@@ -12,7 +12,6 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ currentView, onChang
     const menuItems = [
         { id: 'dashboard', label: 'Danh sách Kỳ sát hạch', icon: 'fa-table-list' },
         { id: 'create', label: 'Tạo Kỳ sát hạch mới', icon: 'fa-circle-plus' },
-        { id: 'content-validation', label: 'Kiểm tra Nội dung thi', icon: 'fa-file-shield' },
         { id: 'student-lookup', label: 'Tra cứu Thí sinh', icon: 'fa-magnifying-glass' },
         { id: 'aggregate-report', label: 'Báo cáo Tổng hợp', icon: 'fa-chart-simple' },
         { id: 'training-units', label: 'Đơn vị Đào tạo', icon: 'fa-building-columns' },

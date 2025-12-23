@@ -1,14 +1,13 @@
-
 import type { StudentRecord, TrainingUnit } from '../types';
 
-// Helper to check result status, handles empty/null values.
-export const getResultStatus = (result: string | undefined | null): { participated: boolean, passed: boolean } => {
-    const normalized = typeof result === 'string' ? result.trim().toUpperCase() : '';
-    if (normalized === '' || normalized === 'VẮNG') return { participated: false, passed: false };
-    return { participated: true, passed: normalized === 'ĐẠT' };
+export const getResultStatus = (result: string | number | undefined | null): { participated: boolean, passed: boolean } => {
+    if (result === undefined || result === null) return { participated: false, passed: false };
+    const normalized = result.toString().trim().toUpperCase();
+    if (normalized === '' || normalized === 'VẮNG' || normalized === 'V') return { participated: false, passed: false };
+    const isPassed = normalized === 'ĐẠT' || normalized === 'PASSED' || normalized === 'P' || normalized === '1';
+    return { participated: true, passed: isPassed };
 };
 
-// Check if a student is considered absent (took no tests).
 export const isStudentAbsent = (record: StudentRecord): boolean => {
     const theory = getResultStatus(record['LÝ THUYẾT']);
     const simulation = getResultStatus(record['MÔ PHỎNG']);
@@ -17,21 +16,15 @@ export const isStudentAbsent = (record: StudentRecord): boolean => {
     return !theory.participated && !simulation.participated && !practical.participated && !onRoad.participated;
 };
 
-// Check if a student passed, based on their required tests.
 export const isStudentPassed = (record: StudentRecord): boolean => {
-    // An absent student cannot pass.
-    if (isStudentAbsent(record)) {
-        return false;
-    }
+    if (isStudentAbsent(record)) return false;
     
-    // Normalize input: convert to string, uppercase, and replace 'Đ' with 'D' for consistency
-    // This supports "L+M+H+D", "LMHD", "L+M+H+Đ" formats.
     let noiDungThi = (record['NỘI DUNG THI'] || '').toString().trim().toUpperCase();
     noiDungThi = noiDungThi.replace(/Đ/g, 'D');
 
-    if (noiDungThi.length === 0) return false; // Must have required tests to pass.
+    if (noiDungThi.length === 0) return false;
 
-    // 'includes' works even if there are separators like +, -, or space (e.g., "L+M+H+D")
+    // Kiểm tra tất cả các phần thi bắt buộc có trong cột NỘI DUNG THI
     const requiredTestsPassed =
         (!noiDungThi.includes('L') || getResultStatus(record['LÝ THUYẾT']).passed) &&
         (!noiDungThi.includes('M') || getResultStatus(record['MÔ PHỎNG']).passed) &&
@@ -41,51 +34,31 @@ export const isStudentPassed = (record: StudentRecord): boolean => {
     return requiredTestsPassed;
 };
 
-// Generate the summary string (Total: X, Class B: Y, ...)
 export const generateClassSummaryString = (students: StudentRecord[]): string => {
-    if (!students || students.length === 0) {
-        return "Tổng số: 0";
-    }
+    if (!students || students.length === 0) return "Tổng số: 0";
     const classCounts: { [key: string]: number } = {};
     for (const student of students) {
         const className = String(student['HẠNG GPLX'] || 'Khác').trim();
         classCounts[className] = (classCounts[className] || 0) + 1;
     }
-    
     const sortedClasses = Object.keys(classCounts).sort();
-    
     const parts = sortedClasses.map(className => `Hạng ${className}: ${classCounts[className]}`);
-    
     return `Tổng số: ${students.length}\u00A0\u00A0\u00A0\u00A0${parts.join('; ')}`;
 };
 
-// Generate the "Ghi chú" (Note) for a student.
 export const generateGhiChu = (record: StudentRecord): string => {
     const maHocVien = (record['MÃ HỌC VIÊN'] || '').toString().trim();
     const isRetake = maHocVien.startsWith('2721') || maHocVien.startsWith('2722');
     
-    // Also normalize 'Đ' -> 'D' for display in notes if needed, 
-    // though usually we display what was entered or a cleaner version.
     let testsTaken = (record['NỘI DUNG THI'] || '').toString().trim().toUpperCase();
-    testsTaken = testsTaken.replace(/Đ/g, 'D');
-
-    if (isRetake) {
-        return `Thi lại nội dung: ${testsTaken}`;
-    }
+    if (isRetake) return `Thi lại: ${testsTaken}`;
     return `Thi lần đầu`;
 };
 
-// Identify training unit based on student ID
-// NOTE: `units` must be provided. Matches student ID start with unit code.
 export const identifyTrainingUnit = (studentId: string | number | undefined, units: TrainingUnit[] = []): string => {
     if (!studentId || !units || units.length === 0) return '';
     const sId = studentId.toString().trim();
-    
-    // Sort units by code length descending to ensure specific codes match first 
-    // (e.g. if we have unit "12" and "123", student "12345" should match "123")
     const sortedUnits = [...units].sort((a, b) => b.code.length - a.code.length);
-    
     const matchedUnit = sortedUnits.find(u => sId.startsWith(u.code));
-    
     return matchedUnit ? matchedUnit.name : '';
 };

@@ -1,4 +1,3 @@
-
 export interface TestResult {
   total: number;
   pass: number;
@@ -41,8 +40,6 @@ export interface StudentRecord {
   'MÔ PHỎNG': string;
   'SA HÌNH': string;
   'ĐƯỜNG TRƯỜNG': string;
-  // UI Only fields for validation
-  _historyWarnings?: string[]; 
 }
 
 export interface Attendee {
@@ -67,9 +64,9 @@ export interface TrainingUnit {
 
 export interface SavedSession {
     id: string;
-    name: string; 
+    name: string;
     createdAt: number;
-    reportDate: string; 
+    reportDate: string;
     studentRecords: StudentRecord[];
     appData: AppData;
     grandTotal: LicenseClassData;

@@ -1,5 +1,5 @@
 {
-  "name": "APPBCTH",
-  "description": "A web tool to upload and display driving test results from XML files. It aggregates data for theory, simulation, practical course, and on-road tests for different license classes.",
+  "name": "APPBCTH - Hệ thống Báo cáo Sát hạch",
+  "description": "Ứng dụng web xử lý dữ liệu Excel để tổng hợp và xuất báo cáo kết quả sát hạch lái xe ô tô, bao gồm Lý thuyết, Mô phỏng, Sa hình và Đường trường.",
   "requestFramePermissions": []
 }

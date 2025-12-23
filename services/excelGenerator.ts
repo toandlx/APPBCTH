@@ -1,4 +1,3 @@
-
 import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, TrainingUnit, SavedSession } from '../types';
 import { toVietnameseWords } from './vietnameseNumberToWords';
 import { generateClassSummaryString, generateGhiChu, identifyTrainingUnit, isStudentAbsent, isStudentPassed, getResultStatus } from './reportUtils';
@@ -683,32 +682,4 @@ export const exportAggregateReportToExcel = (
     XLSX.utils.book_append_sheet(wb, ws, "Tong_Hop_Luot_Thi");
     const safeTitle = title.replace(/[/\\?%*:|"<>]/g, '-').replace(/\s+/g, '_');
     XLSX.writeFile(wb, `Bao_Cao_Tong_Hop_${safeTitle}.xlsx`);
-};
-
-/**
- * NEW: Export validation results to Excel.
- */
-export const exportValidationResultsToExcel = (results: any[]) => {
-    const wb = XLSX.utils.book_new();
-    
-    // Prepare data for Excel - Flatten messages into a single string
-    const excelData = results.map(row => {
-        const { _status, _messages, ...cleanRow } = row;
-        return {
-            ...cleanRow,
-            'TRẠNG THÁI': _status === 'valid' ? 'Hợp lệ' : 'Cảnh báo',
-            'CẢNH BÁO CHI TIẾT': _messages.join('; ')
-        };
-    });
-
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    
-    // Auto-width columns
-    const wscols = Object.keys(excelData[0] || {}).map(key => ({
-        wch: Math.max(key.length, 15)
-    }));
-    ws['!cols'] = wscols;
-
-    XLSX.utils.book_append_sheet(wb, ws, "KetQuaKiemTra");
-    XLSX.writeFile(wb, `Ket_Qua_Kiem_Tra_Noi_Dung_${formatDateForFilename(new Date())}.xlsx`);
 };
