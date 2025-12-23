@@ -1,9 +1,8 @@
-
 import React from 'react';
 
 interface AdminSidebarProps {
-    currentView: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup';
-    onChangeView: (view: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup') => void;
+    currentView: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup' | 'conflict-audit';
+    onChangeView: (view: 'dashboard' | 'create' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup' | 'conflict-audit') => void;
     darkMode: boolean;
     onToggleDarkMode: () => void;
 }
@@ -13,6 +12,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ currentView, onChang
         { id: 'dashboard', label: 'Danh sách Kỳ sát hạch', icon: 'fa-table-list' },
         { id: 'create', label: 'Tạo Kỳ sát hạch mới', icon: 'fa-circle-plus' },
         { id: 'student-lookup', label: 'Tra cứu Thí sinh', icon: 'fa-magnifying-glass' },
+        { id: 'conflict-audit', label: 'Kiểm tra Nội dung', icon: 'fa-shield-halved' },
         { id: 'aggregate-report', label: 'Báo cáo Tổng hợp', icon: 'fa-chart-simple' },
         { id: 'training-units', label: 'Đơn vị Đào tạo', icon: 'fa-building-columns' },
         { id: 'settings', label: 'Cấu hình hệ thống', icon: 'fa-gear' },
@@ -26,30 +26,29 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ currentView, onChang
                         <i className="fa-solid fa-car-side"></i>
                     </div>
                     <div>
-                        <h1 className="font-bold text-lg leading-tight">Quản Lý</h1>
+                        <h1 className="font-bold text-lg leading-tight text-white">Quản Lý</h1>
                         <p className="text-xs text-slate-400">Sát Hạch Lái Xe</p>
                     </div>
                 </div>
             </div>
 
-            <nav className="flex-1 p-4 space-y-2">
+            <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
                 {menuItems.map(item => (
                     <button
                         key={item.id}
                         onClick={() => onChangeView(item.id as any)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-left ${
                             currentView === item.id 
                                 ? 'bg-blue-600 text-white shadow-md' 
                                 : 'text-slate-300 hover:bg-slate-700 dark:hover:bg-slate-800 hover:text-white'
                         }`}
                     >
                         <i className={`fa-solid ${item.icon} w-5 text-center`}></i>
-                        <span className="font-medium">{item.label}</span>
+                        <span className="font-medium text-sm">{item.label}</span>
                     </button>
                 ))}
             </nav>
 
-            {/* Dark Mode Toggle */}
             <div className="px-4 py-3 border-t border-slate-700">
                 <button 
                     onClick={onToggleDarkMode}
@@ -66,9 +65,9 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ currentView, onChang
                 </button>
             </div>
 
-            <div className="p-4 text-xs text-slate-500 text-center">
-                <p>Phiên bản 3.7.2</p>
-                <p>&copy; 2025 Driving Test Manager</p>
+            <div className="p-4 text-[10px] text-slate-500 text-center">
+                <p>Phiên bản 3.8.0</p>
+                <p>&copy; 2025 APPBCTH System</p>
             </div>
         </aside>
     );

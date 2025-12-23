@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { storageService } from '../../services/storageService';
 
@@ -13,7 +12,11 @@ interface ServerInfo {
     }
 }
 
-export const SettingsPage: React.FC = () => {
+interface SettingsPageProps {
+    onRefresh: () => void;
+}
+
+export const SettingsPage: React.FC<SettingsPageProps> = ({ onRefresh }) => {
     const [activeTab, setActiveTab] = useState<'database' | 'data'>('database');
     const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -58,7 +61,6 @@ export const SettingsPage: React.FC = () => {
         }
     };
 
-    // Check server status on mount
     useEffect(() => {
         checkServer();
         setLocalCount(storageService.getLocalSessionCount());
@@ -73,6 +75,15 @@ export const SettingsPage: React.FC = () => {
         setSyncStatus('completed');
         setSyncResult({ success: result.success, failed: result.failed });
         setLocalCount(storageService.getLocalSessionCount());
+    };
+
+    const handleClearCache = () => {
+        if (confirm('CẢNH BÁO: Việc này sẽ xóa toàn bộ kỳ sát hạch đang lưu trên trình duyệt này. Nếu bạn chưa đồng bộ lên Cloud SQL, dữ liệu sẽ mất vĩnh viễn. Bạn có chắc chắn?')) {
+            storageService.clearLocalCache();
+            setLocalCount(0);
+            onRefresh();
+            alert('Đã dọn dẹp bộ nhớ đệm thành công.');
+        }
     };
 
     const renderServerStatus = () => {
@@ -107,60 +118,58 @@ export const SettingsPage: React.FC = () => {
     };
 
     return (
-        <div className="p-6 md:p-10 h-full overflow-y-auto bg-gray-100">
+        <div className="p-6 md:p-10 h-full overflow-y-auto bg-gray-100 dark:bg-gray-900 transition-colors">
             <div className="mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-gray-800">Cấu hình hệ thống</h2>
-                    <p className="text-gray-500 mt-1">Quản lý kết nối và đồng bộ dữ liệu.</p>
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Cấu hình hệ thống</h2>
+                    <p className="text-gray-500 dark:text-gray-400 mt-1">Quản lý kết nối và đồng bộ dữ liệu.</p>
                 </div>
                 <div className="w-full md:w-auto flex justify-end">
                     {renderServerStatus()}
                 </div>
             </div>
 
-            {/* Tabs */}
-            <div className="flex border-b border-gray-200 mb-6 bg-white rounded-t-lg px-2 pt-2">
+            <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6 bg-white dark:bg-gray-800 rounded-t-lg px-2 pt-2">
                 <button
-                    className={`py-3 px-6 font-medium text-sm focus:outline-none rounded-t-lg transition-colors ${activeTab === 'database' ? 'bg-blue-50 border-t-2 border-blue-500 text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+                    className={`py-3 px-6 font-medium text-sm focus:outline-none rounded-t-lg transition-colors ${activeTab === 'database' ? 'bg-blue-50 dark:bg-blue-900/30 border-t-2 border-blue-500 text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
                     onClick={() => setActiveTab('database')}
                 >
                     <i className="fa-solid fa-server mr-2"></i> Trạng thái Server
                 </button>
                 <button
-                    className={`py-3 px-6 font-medium text-sm focus:outline-none rounded-t-lg transition-colors ${activeTab === 'data' ? 'bg-blue-50 border-t-2 border-blue-500 text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+                    className={`py-3 px-6 font-medium text-sm focus:outline-none rounded-t-lg transition-colors ${activeTab === 'data' ? 'bg-blue-50 dark:bg-blue-900/30 border-t-2 border-blue-500 text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
                     onClick={() => setActiveTab('data')}
                 >
-                    <i className="fa-solid fa-cloud-arrow-up mr-2"></i> Đồng bộ Dữ liệu
+                    <i className="fa-solid fa-cloud-arrow-up mr-2"></i> Đồng bộ & Bộ nhớ
                 </button>
             </div>
 
-            {/* Content */}
-            <div className="bg-white rounded-b-xl rounded-tr-xl shadow-sm border border-gray-200 p-6 max-w-4xl min-h-[400px]">
+            <div className="bg-white dark:bg-gray-800 rounded-b-xl rounded-tr-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 max-w-4xl min-h-[400px]">
                 {activeTab === 'database' && (
                     <div className="space-y-6">
-                        <div className="bg-blue-50 border border-blue-200 rounded-md p-6 text-blue-800">
+                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-6 text-blue-800 dark:text-blue-300">
                             <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
                                 <i className="fa-solid fa-shield-halved"></i> Chế độ Bảo mật Cao
                             </h3>
                             <p className="text-sm mb-4">
-                                Hệ thống đang chạy ở chế độ bảo mật. Thông tin kết nối Database được cấu hình trực tiếp trên <strong>Server (Backend)</strong> hoặc thông qua <strong>Biến môi trường (Environment Variables)</strong>.
+                                Hệ thống đang chạy ở chế độ bảo mật. Thông tin kết nối Database được cấu hình trực tiếp trên <strong>Server (Backend)</strong>.
                                 <br/>Việc thay đổi cấu hình từ trình duyệt đã bị vô hiệu hóa để đảm bảo an toàn.
                             </p>
                         </div>
 
-                        <div className="border rounded-lg p-6 bg-gray-50">
-                            <h4 className="font-bold text-gray-700 mb-4 border-b pb-2">Thông tin kết nối Server</h4>
+                        <div className="border rounded-lg p-6 bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600">
+                            <h4 className="font-bold text-gray-700 dark:text-gray-200 mb-4 border-b dark:border-gray-600 pb-2">Thông tin kết nối Server</h4>
                             
                             {serverInfo ? (
                                 <div className="grid grid-cols-1 gap-6 text-sm">
                                     <div>
-                                        <label className="block text-gray-500 text-xs uppercase font-bold mb-1">Trạng thái kết nối Database</label>
+                                        <label className="block text-gray-500 dark:text-gray-400 text-xs uppercase font-bold mb-1">Trạng thái kết nối Database</label>
                                         {serverInfo.dbConnected ? (
-                                            <div className="bg-green-100 text-green-700 px-4 py-3 rounded font-bold flex items-center gap-2 text-base">
+                                            <div className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-4 py-3 rounded font-bold flex items-center gap-2 text-base">
                                                 <i className="fa-solid fa-check-circle text-xl"></i> Đang hoạt động ổn định
                                             </div>
                                         ) : (
-                                            <div className="bg-red-100 text-red-700 px-4 py-3 rounded font-bold flex items-center gap-2 text-base">
+                                            <div className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-4 py-3 rounded font-bold flex items-center gap-2 text-base">
                                                 <i className="fa-solid fa-circle-xmark text-xl"></i> Mất kết nối
                                             </div>
                                         )}
@@ -176,7 +185,7 @@ export const SettingsPage: React.FC = () => {
                                 <button 
                                     onClick={handleRetryConnection}
                                     disabled={isLoading}
-                                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-md font-medium transition-colors flex items-center gap-2"
+                                    className="px-4 py-2 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-800 dark:text-white rounded-md font-medium transition-colors flex items-center gap-2"
                                 >
                                     <i className={`fa-solid fa-rotate-right ${isLoading ? 'animate-spin' : ''}`}></i>
                                     Thử kết nối lại
@@ -188,45 +197,52 @@ export const SettingsPage: React.FC = () => {
 
                 {activeTab === 'data' && (
                     <div className="space-y-6">
-                         <div className="bg-amber-50 border border-amber-200 rounded-md p-4 text-sm text-amber-800">
+                         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-4 text-sm text-amber-800 dark:text-amber-300">
                             <i className="fa-solid fa-triangle-exclamation mr-2"></i>
-                            <strong>Đồng bộ dữ liệu:</strong> Tính năng này dùng để đẩy dữ liệu cũ (lưu tạm trên trình duyệt) lên hệ thống Cloud SQL.
+                            <strong>Dung lượng lưu trữ:</strong> Trình duyệt chỉ cho phép lưu tối đa khoảng 5MB dữ liệu. Nếu bạn không dùng Cloud SQL, hãy thường xuyên dọn dẹp các kỳ sát hạch cũ để tránh lỗi không lưu được dữ liệu mới.
                         </div>
 
-                        <div className="grid grid-cols-1 gap-6">
-                            <div className="p-6 bg-gray-50 rounded-lg border border-gray-200 flex flex-col items-center justify-center text-center">
-                                <div className="text-4xl font-bold text-gray-800 mb-2">{localCount}</div>
-                                <div className="text-gray-600 font-medium">Kỳ sát hạch đang lưu trên Trình duyệt</div>
-                                <div className="text-xs text-gray-400 mt-1">Dữ liệu này có thể chưa có trên Cloud SQL</div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="p-6 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 flex flex-col items-center justify-center text-center">
+                                <div className="text-4xl font-bold text-gray-800 dark:text-white mb-2">{localCount}</div>
+                                <div className="text-gray-600 dark:text-gray-400 font-medium">Kỳ sát hạch trên Trình duyệt</div>
                                 
-                                <div className="mt-6 w-full max-w-xs">
+                                <div className="mt-6 w-full space-y-3">
                                     <button 
                                         onClick={handleSync}
                                         disabled={localCount === 0 || syncStatus === 'syncing' || !serverInfo?.dbConnected}
-                                        className={`w-full py-3 px-4 rounded-lg font-bold text-white shadow-md flex items-center justify-center gap-2 transition-all ${
+                                        className={`w-full py-2.5 px-4 rounded-lg font-bold text-white shadow-md flex items-center justify-center gap-2 transition-all ${
                                             localCount === 0 || !serverInfo?.dbConnected
                                                 ? 'bg-gray-400 cursor-not-allowed' 
                                                 : syncStatus === 'syncing' 
                                                     ? 'bg-blue-400 cursor-wait' 
-                                                    : 'bg-blue-600 hover:bg-blue-700 hover:scale-[1.02]'
+                                                    : 'bg-blue-600 hover:bg-blue-700'
                                         }`}
                                     >
                                         {syncStatus === 'syncing' ? <i className="fa-solid fa-spinner animate-spin"></i> : <i className="fa-solid fa-cloud-arrow-up"></i>}
-                                        {syncStatus === 'syncing' ? 'Đang đồng bộ...' : 'Đồng bộ ngay lên Cloud SQL'}
+                                        Đồng bộ lên Cloud SQL
+                                    </button>
+
+                                    <button 
+                                        onClick={handleClearCache}
+                                        disabled={localCount === 0}
+                                        className="w-full py-2.5 px-4 rounded-lg font-bold text-red-600 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <i className="fa-solid fa-trash-can"></i>
+                                        Xóa bộ nhớ trình duyệt
                                     </button>
                                 </div>
-                                {!serverInfo?.dbConnected && <p className="text-xs text-red-500 mt-2">Cần kết nối Cloud SQL để đồng bộ.</p>}
                             </div>
 
                              {syncStatus === 'completed' && syncResult && (
                                 <div className={`p-4 rounded-lg border ${syncResult.failed === 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-yellow-50 border-yellow-200 text-yellow-800'}`}>
-                                    <h4 className="font-bold flex items-center gap-2">
+                                    <h4 className="font-bold flex items-center gap-2 text-sm">
                                         {syncResult.failed === 0 ? <i className="fa-solid fa-check-circle"></i> : <i className="fa-solid fa-circle-exclamation"></i>}
                                         Kết quả đồng bộ:
                                     </h4>
-                                    <ul className="list-disc pl-6 mt-2 text-sm">
+                                    <ul className="list-disc pl-6 mt-2 text-xs">
                                         <li>Thành công: <strong>{syncResult.success}</strong> kỳ sát hạch</li>
-                                        {syncResult.failed > 0 && <li>Thất bại: <strong>{syncResult.failed}</strong> kỳ (Kiểm tra log server)</li>}
+                                        {syncResult.failed > 0 && <li>Thất bại: <strong>{syncResult.failed}</strong> kỳ (Kiểm tra kết nối)</li>}
                                     </ul>
                                 </div>
                             )}

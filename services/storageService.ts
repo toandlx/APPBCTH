@@ -1,5 +1,4 @@
 
-
 import type { SavedSession, TrainingUnit } from '../types';
 
 const API_URL = '/api/sessions';
@@ -7,33 +6,26 @@ const UNIT_API_URL = '/api/training-units';
 const SESSION_STORAGE_KEY = 'driving_test_sessions';
 const UNIT_STORAGE_KEY = 'driving_test_units';
 
-console.log("[Storage] v3.5.1 - Hybrid Mode (Cloud SQL -> LocalStorage)");
+console.log("[Storage] v3.6.0 - Enhanced Error Handling");
 
-// Helper function: Try API first, fallback to LocalStorage if API fails
 const tryApiOrFallback = async <T>(
     apiCall: () => Promise<T>, 
     fallbackCall: () => T | Promise<T>
 ): Promise<T> => {
     try {
-        // Attempt API call
         return await apiCall();
     } catch (e) {
-        console.warn("[Storage] API unavailable (using LocalStorage fallback):", e);
-        return fallbackCall();
+        console.warn("[Storage] API Error, falling back to local:", e);
+        return await fallbackCall();
     }
 };
 
 export const storageService = {
-    // --- SESSIONS ---
     getAllSessions: async (): Promise<SavedSession[]> => {
         return tryApiOrFallback(
             async () => {
                 const response = await fetch(API_URL);
-                if (!response.ok) throw new Error(`Status ${response.status}`);
-                const contentType = response.headers.get("content-type");
-                if (!contentType || !contentType.includes("application/json")) {
-                     throw new Error("Invalid content type (likely HTML 404)");
-                }
+                if (!response.ok) throw new Error(`API error: ${response.status}`);
                 return await response.json();
             },
             () => {
@@ -52,14 +44,25 @@ export const storageService = {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(session),
                 });
-                if (!response.ok) throw new Error(`Save failed: ${response.status}`);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`API Save failed: ${response.status} - ${errorText}`);
+                }
             },
             () => {
-                const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
-                const index = sessions.findIndex((s: SavedSession) => s.id === session.id);
-                if (index >= 0) sessions[index] = session;
-                else sessions.unshift(session);
-                localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+                try {
+                    const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+                    const index = sessions.findIndex((s: SavedSession) => s.id === session.id);
+                    if (index >= 0) sessions[index] = session;
+                    else sessions.unshift(session);
+                    
+                    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+                } catch (e) {
+                    if (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+                        throw new Error("Bộ nhớ trình duyệt đã đầy! Vui lòng xóa các kỳ sát hạch cũ hoặc kết nối Cloud SQL.");
+                    }
+                    throw e;
+                }
             }
         );
     },
@@ -92,8 +95,6 @@ export const storageService = {
             }
         );
     },
-
-    // --- TRAINING UNITS (NEW) ---
 
     getAllTrainingUnits: async (): Promise<TrainingUnit[]> => {
         return tryApiOrFallback(
@@ -130,30 +131,11 @@ export const storageService = {
         );
     },
 
+    // Fix: Added missing importTrainingUnits method to handle bulk import of training units
     importTrainingUnits: async (units: TrainingUnit[]): Promise<void> => {
-        return tryApiOrFallback(
-            async () => {
-                const response = await fetch(`${UNIT_API_URL}/batch`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(units),
-                });
-                if (!response.ok) throw new Error(`Batch import failed`);
-            },
-            () => {
-                // For LocalStorage import, we'll append/update (upsert by ID)
-                const existing = JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
-                const map = new Map<string, TrainingUnit>();
-                
-                // Load existing
-                existing.forEach((u: TrainingUnit) => map.set(u.id, u));
-                // Overlay new
-                units.forEach(u => map.set(u.id, u));
-                
-                const finalUnits = Array.from(map.values());
-                localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(finalUnits));
-            }
-        );
+        for (const unit of units) {
+            await storageService.saveTrainingUnit(unit);
+        }
     },
 
     deleteTrainingUnit: async (id: string): Promise<void> => {
@@ -170,8 +152,10 @@ export const storageService = {
         );
     },
 
-    // --- Data Migration/Sync Utils ---
-    
+    clearLocalCache: (): void => {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+    },
+
     getLocalSessionCount: (): number => {
         try {
             const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
@@ -199,19 +183,12 @@ export const storageService = {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(session),
                 });
-                
-                if (response.ok) {
-                    success++;
-                } else {
-                    console.error(`Failed to sync session ${session.id}:`, response.statusText);
-                    failed++;
-                }
+                if (response.ok) success++;
+                else failed++;
             } catch (e) {
-                console.error(`Error syncing session ${session.id}:`, e);
                 failed++;
             }
         }
-        
         return { success, failed, total: sessions.length };
     }
 };

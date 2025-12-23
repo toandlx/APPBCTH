@@ -42,6 +42,14 @@ export interface StudentRecord {
   'ĐƯỜNG TRƯỜNG': string;
 }
 
+export interface ConflictWarning {
+    studentName: string;
+    studentId: string;
+    conflictPart: string; // L, M, H, D
+    previousSessionName: string;
+    previousDate: string;
+}
+
 export interface Attendee {
   id: string;
   name: string;

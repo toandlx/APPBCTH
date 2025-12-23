@@ -1,4 +1,4 @@
-import type { StudentRecord, TrainingUnit } from '../types';
+import type { StudentRecord, TrainingUnit, SavedSession, ConflictWarning } from '../types';
 
 export const getResultStatus = (result: string | number | undefined | null): { participated: boolean, passed: boolean } => {
     if (result === undefined || result === null) return { participated: false, passed: false };
@@ -24,7 +24,6 @@ export const isStudentPassed = (record: StudentRecord): boolean => {
 
     if (noiDungThi.length === 0) return false;
 
-    // Kiểm tra tất cả các phần thi bắt buộc có trong cột NỘI DUNG THI
     const requiredTestsPassed =
         (!noiDungThi.includes('L') || getResultStatus(record['LÝ THUYẾT']).passed) &&
         (!noiDungThi.includes('M') || getResultStatus(record['MÔ PHỎNG']).passed) &&
@@ -32,6 +31,108 @@ export const isStudentPassed = (record: StudentRecord): boolean => {
         (!noiDungThi.includes('D') || getResultStatus(record['ĐƯỜNG TRƯỜNG']).passed);
     
     return requiredTestsPassed;
+};
+
+const getPartName = (code: string) => {
+    switch(code) {
+        case 'L': return 'Lý thuyết';
+        case 'M': return 'Mô phỏng';
+        case 'H': return 'Sa hình';
+        case 'D': return 'Đường trường';
+        default: return code;
+    }
+};
+
+export const checkHistoricalConflicts = (
+    currentRecords: StudentRecord[],
+    history: SavedSession[]
+): ConflictWarning[] => {
+    const warnings: ConflictWarning[] = [];
+    
+    // 1. Lưu các môn đã ĐẠT theo từng học viên
+    const passedMap = new Map<string, Map<string, { session: string, date: string }>>();
+    // 2. Lưu BỘ KHUNG nội dung thi lần đầu tiên xuất hiện
+    const firstContentMap = new Map<string, { parts: Set<string>, session: string, date: string }>();
+
+    // Sắp xếp lịch sử theo thời gian từ cũ nhất để xác định "Lần đầu" chuẩn xác
+    const sortedHistory = [...history].sort((a, b) => 
+        new Date(a.reportDate).getTime() - new Date(b.reportDate).getTime()
+    );
+
+    sortedHistory.forEach(session => {
+        session.studentRecords.forEach(record => {
+            const sid = String(record['MÃ HỌC VIÊN'] || '').trim();
+            if (!sid) return;
+
+            const sessionDate = new Date(session.reportDate).toLocaleDateString('vi-VN');
+
+            // Ghi nhận BỘ KHUNG nội dung thi lần đầu tiên (Mốc khởi đầu)
+            if (!firstContentMap.has(sid)) {
+                const contentStr = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
+                const parts = new Set<string>();
+                ['L', 'M', 'H', 'D'].forEach(p => {
+                    if (contentStr.includes(p)) parts.add(p);
+                });
+
+                firstContentMap.set(sid, {
+                    parts,
+                    session: session.name,
+                    date: sessionDate
+                });
+            }
+
+            // Ghi nhận tất cả các kết quả ĐẠT trong quá khứ
+            if (!passedMap.has(sid)) passedMap.set(sid, new Map());
+            const studentPassed = passedMap.get(sid)!;
+            if (getResultStatus(record['LÝ THUYẾT']).passed) studentPassed.set('L', { session: session.name, date: sessionDate });
+            if (getResultStatus(record['MÔ PHỎNG']).passed) studentPassed.set('M', { session: session.name, date: sessionDate });
+            if (getResultStatus(record['SA HÌNH']).passed) studentPassed.set('H', { session: session.name, date: sessionDate });
+            if (getResultStatus(record['ĐƯỜNG TRƯỜNG']).passed) studentPassed.set('D', { session: session.name, date: sessionDate });
+        });
+    });
+
+    // 3. Thực hiện đối soát dữ liệu hiện tại
+    currentRecords.forEach(record => {
+        const sid = String(record['MÃ HỌC VIÊN'] || '').trim();
+        const currentContent = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
+        
+        const firstAppearance = firstContentMap.get(sid);
+        const historyPassed = passedMap.get(sid);
+
+        ['L', 'M', 'H', 'D'].forEach(partCode => {
+            if (currentContent.includes(partCode)) {
+                
+                // KIỂM TRA 1: Nếu môn này đã ĐẠT rồi thì KHÔNG được phép thi lại
+                if (historyPassed && historyPassed.has(partCode)) {
+                    const prev = historyPassed.get(partCode)!;
+                    warnings.push({
+                        studentName: record['HỌ VÀ TÊN'],
+                        studentId: sid,
+                        conflictPart: `Sai phạm: Đăng ký thi lại môn đã ĐẠT (${getPartName(partCode)})`,
+                        previousSessionName: prev.session,
+                        previousDate: prev.date
+                    });
+                    return; // Nếu đã báo lỗi thi lại môn đạt thì không cần báo lỗi bộ khung
+                }
+
+                // KIỂM TRA 2: Môn này có nằm trong BỘ KHUNG GỐC không?
+                if (firstAppearance) {
+                    // Nếu môn đăng ký hiện tại không nằm trong danh sách đăng ký lần đầu
+                    if (!firstAppearance.parts.has(partCode)) {
+                        warnings.push({
+                            studentName: record['HỌ VÀ TÊN'],
+                            studentId: sid,
+                            conflictPart: `Nghịch lý: Môn ${getPartName(partCode)} không thuộc nội dung thi lần đầu (${Array.from(firstAppearance.parts).map(getPartName).join(', ')})`,
+                            previousSessionName: firstAppearance.session,
+                            previousDate: firstAppearance.date
+                        });
+                    }
+                }
+            }
+        });
+    });
+
+    return warnings;
 };
 
 export const generateClassSummaryString = (students: StudentRecord[]): string => {

@@ -7,12 +7,14 @@ import { SettingsPage } from './components/admin/SettingsPage';
 import { TrainingUnitManager } from './components/admin/TrainingUnitManager';
 import { AggregateReportPage } from './components/admin/AggregateReportPage';
 import { StudentLookupPage } from './components/admin/StudentLookupPage';
+import { ConflictAuditPage } from './components/admin/ConflictAuditPage';
 import { storageService } from './services/storageService';
-import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, SavedSession, TrainingUnit } from './types';
+import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, SavedSession, TrainingUnit, ConflictWarning } from './types';
 import { processExcelData, normalizeData } from './services/excelProcessor';
+import { checkHistoricalConflicts } from './services/reportUtils';
 import { Toast } from './components/ui/Toast';
 
-type AppView = 'dashboard' | 'create' | 'detail' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup';
+type AppView = 'dashboard' | 'create' | 'detail' | 'settings' | 'training-units' | 'aggregate-report' | 'student-lookup' | 'conflict-audit';
 
 const App: React.FC = () => {
     const [currentView, setCurrentView] = useState<AppView>('dashboard');
@@ -21,6 +23,7 @@ const App: React.FC = () => {
     const [studentRecords, setStudentRecords] = useState<StudentRecord[] | null>(null);
     const [selectedSession, setSelectedSession] = useState<SavedSession | null>(null);
     const [trainingUnits, setTrainingUnits] = useState<TrainingUnit[]>([]);
+    const [conflicts, setConflicts] = useState<ConflictWarning[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -67,12 +70,19 @@ const App: React.FC = () => {
     const handleExcelSubmit = (rawRecords: StudentRecord[]) => {
         setIsLoading(true);
         setError(null);
+        setConflicts([]);
         try {
             const cleanRecords = normalizeData(rawRecords);
             const processedData = processExcelData(cleanRecords);
+            const detectedConflicts = checkHistoricalConflicts(cleanRecords, savedSessions);
+            setConflicts(detectedConflicts);
             setStudentRecords(cleanRecords);
             setAppData(processedData);
-            showToast('Xử lý dữ liệu thành công!', 'info');
+            if (detectedConflicts.length > 0) {
+                showToast(`Phát hiện ${detectedConflicts.length} thí sinh nghi vấn nội dung thi!`, 'info');
+            } else {
+                showToast('Xử lý dữ liệu thành công!', 'info');
+            }
         } catch (e) {
              setError(`Lỗi xử lý file Excel: ${(e as Error).message}`);
              showToast('Lỗi xử lý file Excel', 'error');
@@ -103,21 +113,33 @@ const App: React.FC = () => {
     }, [appData]);
 
     const handleSaveSession = async (name: string, reportDate: Date) => {
-        if (!appData || !grandTotal || !studentRecords) return;
+        if (!appData || !grandTotal || !studentRecords) {
+            showToast('Không có dữ liệu để lưu!', 'error');
+            return;
+        }
         setIsLoading(true);
         try {
             const newSession: SavedSession = {
-                id: Date.now().toString(), name, createdAt: Date.now(),
-                reportDate: reportDate.toISOString(), studentRecords, appData,
-                grandTotal, reportMetadata, trainingUnits
+                id: Date.now().toString(), 
+                name: name.trim() || `Kỳ sát hạch ${reportDate.toLocaleDateString('vi-VN')}`, 
+                createdAt: Date.now(),
+                reportDate: reportDate.toISOString(), 
+                studentRecords, 
+                appData,
+                grandTotal, 
+                reportMetadata, 
+                trainingUnits
             };
             await storageService.saveSession(newSession);
             await loadData();
-            setAppData(null); setStudentRecords(null);
+            setAppData(null); 
+            setStudentRecords(null); 
+            setConflicts([]);
             setCurrentView('dashboard');
             showToast('Đã lưu kỳ sát hạch thành công!', 'success');
         } catch (err) {
-            showToast('Lỗi khi lưu dữ liệu!', 'error');
+            console.error("Save Error:", err);
+            showToast(`Lỗi khi lưu dữ liệu: ${(err as Error).message}`, 'error');
         } finally {
             setIsLoading(false);
         }
@@ -128,12 +150,12 @@ const App: React.FC = () => {
         try {
             let fullSession = await storageService.getSessionById(session.id);
             if (!fullSession) fullSession = session;
-            
             setSelectedSession(fullSession);
             setAppData(fullSession.appData);
             setStudentRecords(fullSession.studentRecords);
             setReportMetadata(fullSession.reportMetadata);
             setTrainingUnits(fullSession.trainingUnits || []);
+            setConflicts([]);
             setCurrentView('detail');
         } catch (err) {
             showToast('Lỗi tải thông tin kỳ sát hạch', 'error');
@@ -161,7 +183,7 @@ const App: React.FC = () => {
             <AdminSidebar 
                 currentView={currentView === 'detail' ? 'dashboard' : currentView} 
                 onChangeView={(v) => {
-                    if (v === 'create') { setAppData(null); setStudentRecords(null); }
+                    if (v === 'create') { setAppData(null); setStudentRecords(null); setConflicts([]); }
                     setCurrentView(v);
                 }} 
                 darkMode={darkMode} 
@@ -170,19 +192,27 @@ const App: React.FC = () => {
             <main className="flex-1 h-full relative flex flex-col min-w-0">
                 {currentView === 'dashboard' && <SessionList sessions={savedSessions} onSelectSession={handleSelectSession} onDeleteSession={async id => { await storageService.deleteSession(id); loadData(); }} onCreateNew={() => setCurrentView('create')} onRefresh={loadData} />}
                 {currentView === 'create' && (
-                    appData ? <ReportDashboardPage summaryData={appData} studentRecords={studentRecords} grandTotal={grandTotal} reportMetadata={reportMetadata} mode="preview" onSaveSession={handleSaveSession} trainingUnits={trainingUnits} onStudentUpdate={handleStudentUpdate} />
-                    : <DataInputPage onExcelSubmit={handleExcelSubmit} isLoading={isLoading} error={error} onClearData={() => setAppData(null)} reportMetadata={reportMetadata} onMetadataChange={setReportMetadata} />
+                    appData ? <ReportDashboardPage summaryData={appData} studentRecords={studentRecords} grandTotal={grandTotal} reportMetadata={reportMetadata} mode="preview" onSaveSession={handleSaveSession} trainingUnits={trainingUnits} onStudentUpdate={handleStudentUpdate} isLoading={isLoading} conflicts={conflicts} />
+                    : <DataInputPage onExcelSubmit={handleExcelSubmit} isLoading={isLoading} error={error} onClearData={() => { setAppData(null); setConflicts([]); }} reportMetadata={reportMetadata} onMetadataChange={setReportMetadata} conflicts={conflicts} />
                 )}
-                {currentView === 'detail' && selectedSession && appData && <ReportDashboardPage summaryData={appData} studentRecords={studentRecords} grandTotal={grandTotal} reportMetadata={reportMetadata} mode="view" initialReportDate={selectedSession.reportDate} sessionName={selectedSession.name} trainingUnits={trainingUnits} onStudentUpdate={handleStudentUpdate} onUpdateSession={async (name, date, meta) => {
+                {currentView === 'detail' && selectedSession && appData && <ReportDashboardPage summaryData={appData} studentRecords={studentRecords} grandTotal={grandTotal} reportMetadata={reportMetadata} mode="view" initialReportDate={selectedSession.reportDate} sessionName={selectedSession.name} trainingUnits={trainingUnits} onStudentUpdate={handleStudentUpdate} isLoading={isLoading} onUpdateSession={async (name, date, meta) => {
                     const updated = { ...selectedSession, name, reportDate: date.toISOString(), reportMetadata: meta };
-                    await storageService.saveSession(updated);
-                    await loadData();
-                    showToast('Cập nhật kỳ sát hạch thành công', 'success');
+                    setIsLoading(true);
+                    try {
+                        await storageService.saveSession(updated);
+                        await loadData();
+                        showToast('Cập nhật kỳ sát hạch thành công', 'success');
+                    } catch (err) {
+                        showToast(`Lỗi: ${(err as Error).message}`, 'error');
+                    } finally {
+                        setIsLoading(false);
+                    }
                 }} />}
                 {currentView === 'aggregate-report' && <AggregateReportPage />}
                 {currentView === 'student-lookup' && <StudentLookupPage />}
+                {currentView === 'conflict-audit' && <ConflictAuditPage sessions={savedSessions} />}
                 {currentView === 'training-units' && <TrainingUnitManager trainingUnits={trainingUnits} onUnitsImport={units => { setTrainingUnits(units); loadData(); }} />}
-                {currentView === 'settings' && <SettingsPage />}
+                {currentView === 'settings' && <SettingsPage onRefresh={() => loadData()} />}
             </main>
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         </div>
