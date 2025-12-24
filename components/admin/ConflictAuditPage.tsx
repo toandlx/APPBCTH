@@ -105,13 +105,20 @@ export const ConflictAuditPage: React.FC<{ sessions: SavedSession[] }> = ({ sess
         f.studentId.includes(searchTerm)
     );
 
+    const getConflictType = (msg: string) => {
+        if (msg.includes('Đã ĐẠT')) return 'retake';
+        if (msg.includes('không có trong nội dung đăng ký lần đầu')) return 'framework';
+        if (msg.includes('Thi thiếu môn điều kiện')) return 'prerequisite';
+        return 'other';
+    };
+
     const renderConflictTable = (findings: GroupedFinding[]) => (
         <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
                 <thead className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 uppercase font-bold text-[10px] tracking-wider">
                     <tr>
                         <th className="px-6 py-4 w-1/3">Thí sinh / Mã HV</th>
-                        <th className="px-6 py-4">Chi tiết sai sót & Dữ liệu mốc</th>
+                        <th className="px-6 py-4">Mô tả sai sót & Cơ sở đối chiếu</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -125,23 +132,30 @@ export const ConflictAuditPage: React.FC<{ sessions: SavedSession[] }> = ({ sess
                             </td>
                             <td className="px-6 py-5">
                                 <div className="space-y-4">
-                                    {finding.conflicts.map((c, cIdx) => (
-                                        <div key={cIdx} className="bg-gray-50 dark:bg-gray-750 p-4 rounded-xl border border-gray-100 dark:border-gray-700 relative overflow-hidden">
-                                            <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
-                                            <div className="flex flex-col gap-2">
-                                                <div className="font-bold text-red-700 dark:text-red-400 text-sm leading-snug">
-                                                    {c.part}
-                                                </div>
-                                                <div className="flex items-center gap-3 mt-1">
-                                                    <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Cơ sở đối soát:</div>
-                                                    <div className="flex items-center gap-2 bg-white dark:bg-gray-700 px-2 py-1 rounded border border-gray-200 dark:border-gray-600 shadow-sm">
-                                                        <span className="text-xs font-bold text-gray-700 dark:text-gray-200">{c.previousSessionName}</span>
-                                                        <span className="text-[10px] text-gray-400 italic">({c.previousDate})</span>
+                                    {finding.conflicts.map((c, cIdx) => {
+                                        const type = getConflictType(c.part);
+                                        const borderClass = type === 'prerequisite' ? 'bg-amber-500' : 'bg-red-500';
+                                        const textClass = type === 'prerequisite' ? 'text-amber-700 dark:text-amber-400' : 'text-red-700 dark:text-red-400';
+                                        
+                                        return (
+                                            <div key={cIdx} className="bg-gray-50 dark:bg-gray-750 p-4 rounded-xl border border-gray-100 dark:border-gray-700 relative overflow-hidden">
+                                                <div className={`absolute top-0 left-0 w-1.5 h-full ${borderClass}`}></div>
+                                                <div className="flex flex-col gap-2">
+                                                    <div className={`font-bold ${textClass} text-sm leading-snug`}>
+                                                        {type === 'prerequisite' && <i className="fa-solid fa-arrow-up-right-from-square mr-2"></i>}
+                                                        {c.part}
+                                                    </div>
+                                                    <div className="flex items-center gap-3 mt-1">
+                                                        <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Cơ sở lịch sử:</div>
+                                                        <div className="flex items-center gap-2 bg-white dark:bg-gray-700 px-2 py-1 rounded border border-gray-200 dark:border-gray-600 shadow-sm">
+                                                            <span className="text-xs font-bold text-gray-700 dark:text-gray-200">{c.previousSessionName}</span>
+                                                            <span className="text-[10px] text-gray-400 italic">({c.previousDate})</span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </td>
                         </tr>
@@ -155,7 +169,7 @@ export const ConflictAuditPage: React.FC<{ sessions: SavedSession[] }> = ({ sess
         <div className="p-6 md:p-10 h-full overflow-y-auto bg-gray-50 dark:bg-gray-900">
             <div className="mb-6">
                 <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Kiểm toán Nội dung thi</h2>
-                <p className="text-gray-500 dark:text-gray-400 mt-1">Hệ thống chặn thí sinh thi môn ngoài phạm vi lần đầu và chặn thi lại môn đã có kết quả Đạt.</p>
+                <p className="text-gray-500 dark:text-gray-400 mt-1">Đảm bảo thí sinh thi đúng bộ khung, không thi lại môn đã đạt và thi đủ môn điều kiện.</p>
             </div>
 
             <div className="flex gap-1 bg-gray-200 dark:bg-gray-800 p-1 rounded-xl w-fit mb-6 shadow-inner">
@@ -180,7 +194,7 @@ export const ConflictAuditPage: React.FC<{ sessions: SavedSession[] }> = ({ sess
                             <i className={`fa-solid ${isProcessing ? 'fa-spinner animate-spin text-blue-500' : 'fa-cloud-arrow-up text-blue-600'} text-3xl`}></i>
                         </div>
                         <h3 className="text-lg font-bold text-gray-800 dark:text-white">Kiểm tra File Excel mới</h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto mt-2">Hệ thống sẽ đối soát dựa trên lịch sử thi của từng học viên trong cơ sở dữ liệu.</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto mt-2">Tải file lên để hệ thống rà soát dựa trên toàn bộ lịch sử đã lưu.</p>
                         
                         <div className="mt-8 relative inline-block">
                             <input type="file" accept=".xlsx, .xls" onChange={handleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" disabled={isProcessing} />
@@ -189,14 +203,15 @@ export const ConflictAuditPage: React.FC<{ sessions: SavedSession[] }> = ({ sess
                     </div>
 
                     {hasChecked && (
-                        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+                        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden animate-fade-in">
                             <div className="p-4 bg-gray-50 dark:bg-gray-750 font-bold border-b dark:border-gray-700 flex justify-between items-center">
-                                <span>Kết quả Kiểm toán ({groupedUploadFindings.length} trường hợp nghi vấn)</span>
+                                <span>Kết quả Kiểm toán ({groupedUploadFindings.length} trường hợp sai phạm)</span>
+                                {groupedUploadFindings.length === 0 && <span className="text-green-600 text-xs font-bold uppercase tracking-wider"><i className="fa-solid fa-check-circle mr-1"></i> Không có sai sót</span>}
                             </div>
                             {groupedUploadFindings.length === 0 ? (
                                 <div className="p-16 text-center text-gray-500">
                                     <i className="fa-solid fa-circle-check text-5xl text-green-200 mb-4"></i>
-                                    <p className="font-medium text-lg">Dữ liệu hoàn toàn hợp lệ!</p>
+                                    <p className="font-medium">Dữ liệu hoàn toàn hợp lệ.</p>
                                 </div>
                             ) : renderConflictTable(groupedUploadFindings)}
                         </div>
@@ -217,10 +232,14 @@ export const ConflictAuditPage: React.FC<{ sessions: SavedSession[] }> = ({ sess
                         </div>
                     </div>
                     {filteredHistory.length === 0 ? (
-                        <div className="p-24 text-center text-gray-500 italic">Không tìm thấy sai phạm nào trong lịch sử.</div>
+                        <div className="p-24 text-center text-gray-500 italic">Hệ thống lịch sử nhất quán, không phát hiện sai phạm.</div>
                     ) : renderConflictTable(filteredHistory)}
                 </div>
             )}
+            <style dangerouslySetInnerHTML={{ __html: `
+                .animate-fade-in { animation: fadeIn 0.2s ease-out; }
+                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            `}} />
         </div>
     );
 };

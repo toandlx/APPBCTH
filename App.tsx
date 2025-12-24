@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { DataInputPage } from './components/DataInputPage';
 import { ReportDashboardPage } from './components/reports/ReportDashboardPage';
@@ -9,7 +10,7 @@ import { AggregateReportPage } from './components/admin/AggregateReportPage';
 import { StudentLookupPage } from './components/admin/StudentLookupPage';
 import { ConflictAuditPage } from './components/admin/ConflictAuditPage';
 import { storageService } from './services/storageService';
-import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, SavedSession, TrainingUnit, ConflictWarning } from './types';
+import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, SavedSession, TrainingUnit, ConflictWarning, SessionSummary } from './types';
 import { processExcelData, normalizeData } from './services/excelProcessor';
 import { checkHistoricalConflicts } from './services/reportUtils';
 import { Toast } from './components/ui/Toast';
@@ -18,13 +19,15 @@ type AppView = 'dashboard' | 'create' | 'detail' | 'settings' | 'training-units'
 
 const App: React.FC = () => {
     const [currentView, setCurrentView] = useState<AppView>('dashboard');
-    const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
+    const [savedSummaries, setSavedSummaries] = useState<SessionSummary[]>([]);
+    const [allSessions, setAllSessions] = useState<SavedSession[]>([]); // Lưu cache toàn bộ phiên cho các page cần thiết
     const [appData, setAppData] = useState<AppData | null>(null);
     const [studentRecords, setStudentRecords] = useState<StudentRecord[] | null>(null);
     const [selectedSession, setSelectedSession] = useState<SavedSession | null>(null);
     const [trainingUnits, setTrainingUnits] = useState<TrainingUnit[]>([]);
     const [conflicts, setConflicts] = useState<ConflictWarning[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [isListLoading, setIsListLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [darkMode, setDarkMode] = useState<boolean>(() => localStorage.getItem('theme') === 'dark');
@@ -53,12 +56,22 @@ const App: React.FC = () => {
     });
 
     const loadData = async () => {
-        const [sessions, units] = await Promise.all([
-            storageService.getAllSessions(),
-            storageService.getAllTrainingUnits()
-        ]);
-        setSavedSessions(sessions);
-        setTrainingUnits(units);
+        setIsListLoading(true);
+        try {
+            const [summaries, units, sessions] = await Promise.all([
+                storageService.getSessionSummaries(),
+                storageService.getAllTrainingUnits(),
+                storageService.getAllSessions()
+            ]);
+            setSavedSummaries(summaries);
+            setTrainingUnits(units);
+            setAllSessions(sessions || []);
+        } catch (err) {
+            console.error("Load Data Error:", err);
+            showToast('Không thể tải danh sách kỳ sát hạch', 'error');
+        } finally {
+            setIsListLoading(false);
+        }
     };
 
     const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => setToast({ message, type });
@@ -67,14 +80,19 @@ const App: React.FC = () => {
         loadData();
     }, []);
 
-    const handleExcelSubmit = (rawRecords: StudentRecord[]) => {
+    const handleExcelSubmit = async (rawRecords: StudentRecord[]) => {
         setIsLoading(true);
         setError(null);
         setConflicts([]);
         try {
             const cleanRecords = normalizeData(rawRecords);
             const processedData = processExcelData(cleanRecords);
-            const detectedConflicts = checkHistoricalConflicts(cleanRecords, savedSessions);
+            
+            const history = allSessions.length > 0 ? allSessions : await storageService.getAllSessions();
+            if (allSessions.length === 0) setAllSessions(history);
+
+            const detectedConflicts = checkHistoricalConflicts(cleanRecords, history);
+            
             setConflicts(detectedConflicts);
             setStudentRecords(cleanRecords);
             setAppData(processedData);
@@ -145,11 +163,14 @@ const App: React.FC = () => {
         }
     };
 
-    const handleSelectSession = async (session: SavedSession) => {
+    const handleSelectSession = async (summary: SessionSummary) => {
         setIsLoading(true);
         try {
-            let fullSession = await storageService.getSessionById(session.id);
-            if (!fullSession) fullSession = session;
+            const fullSession = await storageService.getSessionById(summary.id);
+            if (!fullSession) {
+                showToast('Không tìm thấy dữ liệu chi tiết của kỳ sát hạch này', 'error');
+                return;
+            }
             setSelectedSession(fullSession);
             setAppData(fullSession.appData);
             setStudentRecords(fullSession.studentRecords);
@@ -190,7 +211,7 @@ const App: React.FC = () => {
                 onToggleDarkMode={() => setDarkMode(!darkMode)} 
             />
             <main className="flex-1 h-full relative flex flex-col min-w-0">
-                {currentView === 'dashboard' && <SessionList sessions={savedSessions} onSelectSession={handleSelectSession} onDeleteSession={async id => { await storageService.deleteSession(id); loadData(); }} onCreateNew={() => setCurrentView('create')} onRefresh={loadData} />}
+                {currentView === 'dashboard' && <SessionList summaries={savedSummaries} isLoading={isListLoading} onSelectSession={handleSelectSession} onDeleteSession={async id => { await storageService.deleteSession(id); loadData(); }} onCreateNew={() => setCurrentView('create')} onRefresh={loadData} />}
                 {currentView === 'create' && (
                     appData ? <ReportDashboardPage summaryData={appData} studentRecords={studentRecords} grandTotal={grandTotal} reportMetadata={reportMetadata} mode="preview" onSaveSession={handleSaveSession} trainingUnits={trainingUnits} onStudentUpdate={handleStudentUpdate} isLoading={isLoading} conflicts={conflicts} />
                     : <DataInputPage onExcelSubmit={handleExcelSubmit} isLoading={isLoading} error={error} onClearData={() => { setAppData(null); setConflicts([]); }} reportMetadata={reportMetadata} onMetadataChange={setReportMetadata} conflicts={conflicts} />
@@ -210,7 +231,7 @@ const App: React.FC = () => {
                 }} />}
                 {currentView === 'aggregate-report' && <AggregateReportPage />}
                 {currentView === 'student-lookup' && <StudentLookupPage />}
-                {currentView === 'conflict-audit' && <ConflictAuditPage sessions={savedSessions} />}
+                {currentView === 'conflict-audit' && <ConflictAuditPage sessions={allSessions} />}
                 {currentView === 'training-units' && <TrainingUnitManager trainingUnits={trainingUnits} onUnitsImport={units => { setTrainingUnits(units); loadData(); }} />}
                 {currentView === 'settings' && <SettingsPage onRefresh={() => loadData()} />}
             </main>

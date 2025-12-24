@@ -1,194 +1,174 @@
 
-import type { SavedSession, TrainingUnit } from '../types';
+import type { SavedSession, TrainingUnit, SessionSummary } from '../types';
 
 const API_URL = '/api/sessions';
 const UNIT_API_URL = '/api/training-units';
-const SESSION_STORAGE_KEY = 'driving_test_sessions';
-const UNIT_STORAGE_KEY = 'driving_test_units';
+const SESSION_STORAGE_KEY = 'appbcth_sessions';
+const UNIT_STORAGE_KEY = 'appbcth_units';
 
-console.log("[Storage] v3.6.0 - Enhanced Error Handling");
+console.log("[Storage] v4.0.0 - Production Mode Initialized");
 
-const tryApiOrFallback = async <T>(
-    apiCall: () => Promise<T>, 
-    fallbackCall: () => T | Promise<T>
-): Promise<T> => {
+const tryApi = async <T>(apiCall: () => Promise<T>, fallback: () => T | Promise<T>): Promise<T> => {
     try {
-        return await apiCall();
+        const result = await apiCall();
+        return result;
     } catch (e) {
-        console.warn("[Storage] API Error, falling back to local:", e);
-        return await fallbackCall();
+        console.warn("[Storage] Network/Database issue, using fallback:", (e as Error).message);
+        return await fallback();
     }
 };
 
 export const storageService = {
-    getAllSessions: async (): Promise<SavedSession[]> => {
-        return tryApiOrFallback(
+    getSessionSummaries: async (): Promise<SessionSummary[]> => {
+        return tryApi(
             async () => {
-                const response = await fetch(API_URL);
-                if (!response.ok) throw new Error(`API error: ${response.status}`);
-                return await response.json();
+                const res = await fetch(`${API_URL}/summary`);
+                if (!res.ok) throw new Error("API Error");
+                return await res.json();
             },
             () => {
-                try {
-                    return JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
-                } catch { return []; }
+                const local = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+                return local.map((s: SavedSession) => ({
+                    id: s.id,
+                    name: s.name,
+                    reportDate: s.reportDate,
+                    createdAt: s.createdAt,
+                    grandTotal: s.grandTotal,
+                    studentCount: s.studentRecords.length
+                }));
             }
         );
     },
 
-    saveSession: async (session: SavedSession): Promise<void> => {
-        return tryApiOrFallback(
+    getAllSessions: async (): Promise<SavedSession[]> => {
+        return tryApi(
             async () => {
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(session),
-                });
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`API Save failed: ${response.status} - ${errorText}`);
-                }
+                const res = await fetch(API_URL);
+                if (!res.ok) throw new Error("API Error");
+                return await res.json();
+            },
+            () => JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]')
+        );
+    },
+
+    saveSession: async (session: SavedSession): Promise<void> => {
+        // 1. Always Save Local for safety
+        const local = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+        const idx = local.findIndex((s: any) => s.id === session.id);
+        if (idx >= 0) local[idx] = session; else local.unshift(session);
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(local));
+
+        // 2. Try Cloud
+        try {
+            const res = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(session)
+            });
+            if (!res.ok) console.warn("[Storage] Session saved locally only.");
+        } catch (e) {
+            console.error("[Storage] Cloud save error:", e);
+        }
+    },
+
+    getSessionById: async (id: string): Promise<SavedSession | undefined> => {
+        return tryApi(
+            async () => {
+                const res = await fetch(`${API_URL}/${id}`);
+                if (!res.ok) throw new Error("API Error");
+                return await res.json();
             },
             () => {
-                try {
-                    const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
-                    const index = sessions.findIndex((s: SavedSession) => s.id === session.id);
-                    if (index >= 0) sessions[index] = session;
-                    else sessions.unshift(session);
-                    
-                    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
-                } catch (e) {
-                    if (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
-                        throw new Error("Bộ nhớ trình duyệt đã đầy! Vui lòng xóa các kỳ sát hạch cũ hoặc kết nối Cloud SQL.");
-                    }
-                    throw e;
-                }
+                const local = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+                return local.find((s: any) => s.id === id);
             }
         );
     },
 
     deleteSession: async (id: string): Promise<void> => {
-        return tryApiOrFallback(
-            async () => {
-                const response = await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
-                if (!response.ok) throw new Error('Delete failed');
-            },
-            () => {
-                const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
-                const newSessions = sessions.filter((s: SavedSession) => s.id !== id);
-                localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(newSessions));
-            }
-        );
-    },
-
-    getSessionById: async (id: string): Promise<SavedSession | undefined> => {
-        return tryApiOrFallback(
-            async () => {
-                const response = await fetch(`${API_URL}/${id}`);
-                if (response.status === 404) return undefined;
-                if (!response.ok) throw new Error('Network error');
-                return await response.json();
-            },
-            () => {
-                const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
-                return sessions.find((s: SavedSession) => s.id === id);
-            }
-        );
+        const local = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(local.filter((s: any) => s.id !== id)));
+        try { await fetch(`${API_URL}/${id}`, { method: 'DELETE' }); } catch (e) {}
     },
 
     getAllTrainingUnits: async (): Promise<TrainingUnit[]> => {
-        return tryApiOrFallback(
+        return tryApi(
             async () => {
-                const response = await fetch(UNIT_API_URL);
-                if (!response.ok) throw new Error(`Status ${response.status}`);
-                return await response.json();
+                const res = await fetch(UNIT_API_URL);
+                if (!res.ok) throw new Error("API Error");
+                return await res.json();
             },
-            () => {
-                try {
-                    return JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
-                } catch { return []; }
-            }
+            () => JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]')
         );
     },
 
     saveTrainingUnit: async (unit: TrainingUnit): Promise<void> => {
-        return tryApiOrFallback(
-            async () => {
-                const response = await fetch(UNIT_API_URL, {
+        const local = JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
+        const idx = local.findIndex((u: any) => u.id === unit.id);
+        if (idx >= 0) local[idx] = unit; else local.push(unit);
+        localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(local));
+        try {
+            await fetch(UNIT_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(unit)
+            });
+        } catch (e) {}
+    },
+
+    // Fix: Add deleteTrainingUnit to handle individual unit deletion
+    deleteTrainingUnit: async (id: string): Promise<void> => {
+        const local = JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
+        localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(local.filter((u: any) => u.id !== id)));
+        try {
+            await fetch(`${UNIT_API_URL}/${id}`, { method: 'DELETE' });
+        } catch (e) {
+            console.error("[Storage] Failed to delete training unit from cloud:", e);
+        }
+    },
+
+    // Fix: Add importTrainingUnits to handle bulk import from Excel
+    importTrainingUnits: async (units: TrainingUnit[]): Promise<void> => {
+        const local = JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
+        const updatedLocal = [...local];
+        for (const unit of units) {
+            const idx = updatedLocal.findIndex((u: any) => u.id === unit.id);
+            if (idx >= 0) updatedLocal[idx] = unit; else updatedLocal.push(unit);
+        }
+        localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(updatedLocal));
+
+        for (const unit of units) {
+            try {
+                await fetch(UNIT_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(unit),
+                    body: JSON.stringify(unit)
                 });
-                if (!response.ok) throw new Error(`Save unit failed: ${response.status}`);
-            },
-            () => {
-                const units = JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
-                const index = units.findIndex((u: TrainingUnit) => u.id === unit.id);
-                if (index >= 0) units[index] = unit;
-                else units.push(unit);
-                localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(units));
+            } catch (e) {
+                console.error("[Storage] Failed to sync imported unit to cloud:", unit.code);
             }
-        );
-    },
-
-    // Fix: Added missing importTrainingUnits method to handle bulk import of training units
-    importTrainingUnits: async (units: TrainingUnit[]): Promise<void> => {
-        for (const unit of units) {
-            await storageService.saveTrainingUnit(unit);
         }
     },
 
-    deleteTrainingUnit: async (id: string): Promise<void> => {
-        return tryApiOrFallback(
-            async () => {
-                const response = await fetch(`${UNIT_API_URL}/${id}`, { method: 'DELETE' });
-                if (!response.ok) throw new Error('Delete unit failed');
-            },
-            () => {
-                const units = JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
-                const newUnits = units.filter((u: TrainingUnit) => u.id !== id);
-                localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(newUnits));
-            }
-        );
-    },
-
-    clearLocalCache: (): void => {
-        localStorage.removeItem(SESSION_STORAGE_KEY);
-    },
-
-    getLocalSessionCount: (): number => {
-        try {
-            const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
-            return Array.isArray(sessions) ? sessions.length : 0;
-        } catch { return 0; }
-    },
-
-    syncLocalToCloud: async (): Promise<{ success: number; failed: number; total: number }> => {
-        let sessions: SavedSession[] = [];
-        try {
-            sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
-        } catch { return { success: 0, failed: 0, total: 0 }; }
-
-        if (!Array.isArray(sessions) || sessions.length === 0) {
-            return { success: 0, failed: 0, total: 0 };
-        }
-
+    syncLocalToCloud: async (): Promise<{ success: number; failed: number }> => {
+        const local = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
         let success = 0;
         let failed = 0;
-
-        for (const session of sessions) {
+        for (const session of local) {
             try {
-                const response = await fetch(API_URL, {
+                const res = await fetch(API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(session),
+                    body: JSON.stringify(session)
                 });
-                if (response.ok) success++;
-                else failed++;
-            } catch (e) {
-                failed++;
-            }
+                if (res.ok) success++; else failed++;
+            } catch (e) { failed++; }
         }
-        return { success, failed, total: sessions.length };
+        return { success, failed };
+    },
+
+    clearLocalCache: () => localStorage.removeItem(SESSION_STORAGE_KEY),
+    getLocalSessionCount: () => {
+        try { return JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]').length; } catch { return 0; }
     }
 };

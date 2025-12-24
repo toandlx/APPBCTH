@@ -1,3 +1,4 @@
+
 export interface TestResult {
   total: number;
   pass: number;
@@ -48,6 +49,15 @@ export interface ConflictWarning {
     conflictPart: string; // L, M, H, D
     previousSessionName: string;
     previousDate: string;
+}
+
+export interface SessionSummary {
+    id: string;
+    name: string;
+    reportDate: string;
+    createdAt: number;
+    grandTotal: LicenseClassData;
+    studentCount: number;
 }
 
 export interface Attendee {

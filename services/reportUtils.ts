@@ -1,10 +1,17 @@
+
 import type { StudentRecord, TrainingUnit, SavedSession, ConflictWarning } from '../types';
+
+// Helper chuẩn hóa ID để so khớp (Loại bỏ số 0 ở đầu, khoảng trắng)
+const normalizeIdForMatch = (id: string | number | undefined): string => {
+    if (id === undefined || id === null) return '';
+    return String(id).trim().toUpperCase().replace(/^0+/, '');
+};
 
 export const getResultStatus = (result: string | number | undefined | null): { participated: boolean, passed: boolean } => {
     if (result === undefined || result === null) return { participated: false, passed: false };
     const normalized = result.toString().trim().toUpperCase();
     if (normalized === '' || normalized === 'VẮNG' || normalized === 'V') return { participated: false, passed: false };
-    const isPassed = normalized === 'ĐẠT' || normalized === 'PASSED' || normalized === 'P' || normalized === '1';
+    const isPassed = normalized === 'ĐẠT' || normalized === 'PASSED' || normalized === 'P' || normalized === '1' || normalized === 'CHẠM';
     return { participated: true, passed: isPassed };
 };
 
@@ -43,91 +50,131 @@ const getPartName = (code: string) => {
     }
 };
 
+const PART_ORDER = ['L', 'M', 'H', 'D'];
+
 export const checkHistoricalConflicts = (
     currentRecords: StudentRecord[],
     history: SavedSession[]
 ): ConflictWarning[] => {
     const warnings: ConflictWarning[] = [];
     
-    // 1. Lưu các môn đã ĐẠT theo từng học viên
-    const passedMap = new Map<string, Map<string, { session: string, date: string }>>();
-    // 2. Lưu BỘ KHUNG nội dung thi lần đầu tiên xuất hiện
-    const firstContentMap = new Map<string, { parts: Set<string>, session: string, date: string }>();
+    // Bản đồ lưu thông tin theo Mã HV (Đã chuẩn hóa) và CCCD
+    const studentHistory = new Map<string, {
+        passed: Set<string>,
+        failed: Set<string>,
+        firstFramework: Set<string>,
+        lastSession: { name: string, date: string }
+    }>();
 
-    // Sắp xếp lịch sử theo thời gian từ cũ nhất để xác định "Lần đầu" chuẩn xác
+    // Sắp xếp lịch sử theo thời gian
     const sortedHistory = [...history].sort((a, b) => 
         new Date(a.reportDate).getTime() - new Date(b.reportDate).getTime()
     );
 
+    // BƯỚC 1: Thu thập toàn bộ lịch sử
     sortedHistory.forEach(session => {
+        const sessionDate = new Date(session.reportDate).toLocaleDateString('vi-VN');
+        
         session.studentRecords.forEach(record => {
-            const sid = String(record['MÃ HỌC VIÊN'] || '').trim();
-            if (!sid) return;
+            const sid = normalizeIdForMatch(record['MÃ HỌC VIÊN']);
+            const cccd = normalizeIdForMatch(record['SỐ CHỨNG MINH']);
+            if (!sid && !cccd) return;
 
-            const sessionDate = new Date(session.reportDate).toLocaleDateString('vi-VN');
-
-            // Ghi nhận BỘ KHUNG nội dung thi lần đầu tiên (Mốc khởi đầu)
-            if (!firstContentMap.has(sid)) {
-                const contentStr = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
-                const parts = new Set<string>();
-                ['L', 'M', 'H', 'D'].forEach(p => {
-                    if (contentStr.includes(p)) parts.add(p);
-                });
-
-                firstContentMap.set(sid, {
-                    parts,
-                    session: session.name,
-                    date: sessionDate
+            // Sử dụng SID làm key chính, fallback CCCD
+            const key = sid || `cccd-${cccd}`;
+            
+            if (!studentHistory.has(key)) {
+                studentHistory.set(key, {
+                    passed: new Set(),
+                    failed: new Set(),
+                    firstFramework: new Set(),
+                    lastSession: { name: session.name, date: sessionDate }
                 });
             }
 
-            // Ghi nhận tất cả các kết quả ĐẠT trong quá khứ
-            if (!passedMap.has(sid)) passedMap.set(sid, new Map());
-            const studentPassed = passedMap.get(sid)!;
-            if (getResultStatus(record['LÝ THUYẾT']).passed) studentPassed.set('L', { session: session.name, date: sessionDate });
-            if (getResultStatus(record['MÔ PHỎNG']).passed) studentPassed.set('M', { session: session.name, date: sessionDate });
-            if (getResultStatus(record['SA HÌNH']).passed) studentPassed.set('H', { session: session.name, date: sessionDate });
-            if (getResultStatus(record['ĐƯỜNG TRƯỜNG']).passed) studentPassed.set('D', { session: session.name, date: sessionDate });
+            const historyData = studentHistory.get(key)!;
+            historyData.lastSession = { name: session.name, date: sessionDate };
+
+            // Ghi nhận bộ khung lần đầu
+            if (historyData.firstFramework.size === 0) {
+                const content = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
+                PART_ORDER.forEach(p => { if (content.includes(p)) historyData.firstFramework.add(p); });
+            }
+
+            // Cập nhật trạng thái Đạt/Trượt
+            const subjects = [
+                { code: 'L', val: record['LÝ THUYẾT'] },
+                { code: 'M', val: record['MÔ PHỎNG'] },
+                { code: 'H', val: record['SA HÌNH'] },
+                { code: 'D', val: record['ĐƯỜNG TRƯỜNG'] }
+            ];
+
+            subjects.forEach(sub => {
+                const status = getResultStatus(sub.val);
+                if (status.participated) {
+                    if (status.passed) {
+                        historyData.passed.add(sub.code);
+                        historyData.failed.delete(sub.code);
+                    } else {
+                        // Chỉ coi là trượt nếu chưa từng đỗ
+                        if (!historyData.passed.has(sub.code)) {
+                            historyData.failed.add(sub.code);
+                        }
+                    }
+                }
+            });
         });
     });
 
-    // 3. Thực hiện đối soát dữ liệu hiện tại
+    // BƯỚC 2: Đối soát dữ liệu hiện tại
     currentRecords.forEach(record => {
-        const sid = String(record['MÃ HỌC VIÊN'] || '').trim();
-        const currentContent = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
+        const sid = normalizeIdForMatch(record['MÃ HỌC VIÊN']);
+        const cccd = normalizeIdForMatch(record['SỐ CHỨNG MINH']);
+        const key = sid || `cccd-${cccd}`;
         
-        const firstAppearance = firstContentMap.get(sid);
-        const historyPassed = passedMap.get(sid);
+        const historyData = studentHistory.get(key);
+        if (!historyData) return;
 
-        ['L', 'M', 'H', 'D'].forEach(partCode => {
-            if (currentContent.includes(partCode)) {
-                
-                // KIỂM TRA 1: Nếu môn này đã ĐẠT rồi thì KHÔNG được phép thi lại
-                if (historyPassed && historyPassed.has(partCode)) {
-                    const prev = historyPassed.get(partCode)!;
-                    warnings.push({
-                        studentName: record['HỌ VÀ TÊN'],
-                        studentId: sid,
-                        conflictPart: `Sai phạm: Đăng ký thi lại môn đã ĐẠT (${getPartName(partCode)})`,
-                        previousSessionName: prev.session,
-                        previousDate: prev.date
-                    });
-                    return; // Nếu đã báo lỗi thi lại môn đạt thì không cần báo lỗi bộ khung
-                }
+        const currentContent = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
+        const currentParts = new Set<string>();
+        PART_ORDER.forEach(p => { if (currentContent.includes(p)) currentParts.add(p); });
 
-                // KIỂM TRA 2: Môn này có nằm trong BỘ KHUNG GỐC không?
-                if (firstAppearance) {
-                    // Nếu môn đăng ký hiện tại không nằm trong danh sách đăng ký lần đầu
-                    if (!firstAppearance.parts.has(partCode)) {
-                        warnings.push({
-                            studentName: record['HỌ VÀ TÊN'],
-                            studentId: sid,
-                            conflictPart: `Nghịch lý: Môn ${getPartName(partCode)} không thuộc nội dung thi lần đầu (${Array.from(firstAppearance.parts).map(getPartName).join(', ')})`,
-                            previousSessionName: firstAppearance.session,
-                            previousDate: firstAppearance.date
-                        });
-                    }
-                }
+        // 1. Kiểm tra thi lại môn đã đỗ
+        currentParts.forEach(p => {
+            if (historyData.passed.has(p)) {
+                warnings.push({
+                    studentName: record['HỌ VÀ TÊN'],
+                    studentId: String(record['MÃ HỌC VIÊN']),
+                    conflictPart: `Môn ${getPartName(p)} đã ĐẠT trong quá khứ`,
+                    previousSessionName: historyData.lastSession.name,
+                    previousDate: historyData.lastSession.date
+                });
+            }
+        });
+
+        // 2. Kiểm tra thi thiếu môn (Từng trượt nhưng lần này không đăng ký)
+        historyData.failed.forEach(p => {
+            if (!currentParts.has(p)) {
+                warnings.push({
+                    studentName: record['HỌ VÀ TÊN'],
+                    studentId: String(record['MÃ HỌC VIÊN']),
+                    conflictPart: `Thi thiếu môn: Thí sinh từng TRƯỢT ${getPartName(p)} nhưng kỳ này không đăng ký thi lại`,
+                    previousSessionName: historyData.lastSession.name,
+                    previousDate: historyData.lastSession.date
+                });
+            }
+        });
+
+        // 3. Kiểm tra môn nằm ngoài bộ khung ban đầu
+        currentParts.forEach(p => {
+            if (historyData.firstFramework.size > 0 && !historyData.firstFramework.has(p)) {
+                warnings.push({
+                    studentName: record['HỌ VÀ TÊN'],
+                    studentId: String(record['MÃ HỌC VIÊN']),
+                    conflictPart: `Sai bộ khung: Môn ${getPartName(p)} không có trong nội dung đăng ký lần đầu`,
+                    previousSessionName: historyData.lastSession.name,
+                    previousDate: historyData.lastSession.date
+                });
             }
         });
     });

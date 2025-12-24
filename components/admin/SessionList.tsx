@@ -1,16 +1,31 @@
 
 import React, { useMemo, useState } from 'react';
-import type { SavedSession } from '../../types';
+import type { SessionSummary } from '../../types';
 
 interface SessionListProps {
-    sessions: SavedSession[];
-    onSelectSession: (session: SavedSession) => void;
+    summaries: SessionSummary[];
+    isLoading: boolean;
+    onSelectSession: (summary: SessionSummary) => void;
     onDeleteSession: (id: string) => void;
     onCreateNew: () => void;
     onRefresh?: () => Promise<void>;
 }
 
-export const SessionList: React.FC<SessionListProps> = ({ sessions, onSelectSession, onDeleteSession, onCreateNew, onRefresh }) => {
+const SkeletonRow: React.FC = () => (
+    <tr className="animate-pulse">
+        <td className="px-4 py-4"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-48"></div></td>
+        <td className="px-2 py-4"><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-16 mx-auto"></div></td>
+        <td className="px-2 py-4"><div className="h-6 bg-gray-100 dark:bg-gray-800 rounded w-12 mx-auto"></div></td>
+        <td className="px-2 py-4 hidden xl:table-cell"><div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-10 mx-auto"></div></td>
+        <td className="px-2 py-4 hidden xl:table-cell"><div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-10 mx-auto"></div></td>
+        <td className="px-2 py-4 hidden xl:table-cell"><div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-10 mx-auto"></div></td>
+        <td className="px-2 py-4 hidden xl:table-cell"><div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-10 mx-auto"></div></td>
+        <td className="px-4 py-4"><div className="h-8 bg-green-50 dark:bg-green-900/10 rounded w-16 mx-auto"></div></td>
+        <td className="px-4 py-4"><div className="h-8 bg-gray-100 dark:bg-gray-800 rounded w-20 ml-auto"></div></td>
+    </tr>
+);
+
+export const SessionList: React.FC<SessionListProps> = ({ summaries, isLoading, onSelectSession, onDeleteSession, onCreateNew, onRefresh }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -25,12 +40,12 @@ export const SessionList: React.FC<SessionListProps> = ({ sessions, onSelectSess
         }
     };
 
-    const filteredSessions = useMemo(() => {
-        return sessions.filter(s => 
+    const filteredSummaries = useMemo(() => {
+        return summaries.filter(s => 
             s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
             new Date(s.reportDate).toLocaleDateString('vi-VN').includes(searchTerm)
         );
-    }, [sessions, searchTerm]);
+    }, [summaries, searchTerm]);
 
     const formatDate = (dateString: string) => {
         return new Date(dateString).toLocaleDateString('vi-VN', { 
@@ -43,13 +58,13 @@ export const SessionList: React.FC<SessionListProps> = ({ sessions, onSelectSess
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Danh sách Kỳ sát hạch</h2>
-                    <p className="text-gray-500 dark:text-gray-400 mt-1">Quản lý và tra cứu kết quả các kỳ thi sát hạch lái xe.</p>
+                    <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Quản lý và tra cứu kết quả các kỳ thi sát hạch lái xe.</p>
                 </div>
                 <div className="flex items-center gap-2">
                     <button 
                         onClick={handleManualRefresh}
-                        disabled={isRefreshing}
-                        className="px-4 py-2.5 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-all flex items-center gap-2 font-medium"
+                        disabled={isRefreshing || isLoading}
+                        className="px-4 py-2.5 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition-all flex items-center gap-2 font-medium disabled:opacity-50"
                         title="Làm mới danh sách"
                     >
                         <i className={`fa-solid fa-rotate ${isRefreshing ? 'animate-spin' : ''}`}></i>
@@ -77,47 +92,56 @@ export const SessionList: React.FC<SessionListProps> = ({ sessions, onSelectSess
                     </div>
                 </div>
 
-                {filteredSessions.length === 0 ? (
-                    <div className="p-12 text-center text-gray-500 dark:text-gray-400">
-                        <div className="mb-4 text-gray-300 dark:text-gray-600">
-                            <i className="fa-solid fa-folder-open text-6xl"></i>
-                        </div>
-                        <p className="text-lg font-medium">Chưa có dữ liệu kỳ sát hạch</p>
-                        <p className="text-sm mt-1">Nhấn "Tạo Kỳ Mới" để bắt đầu nhập liệu.</p>
-                    </div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
-                            <thead className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 uppercase font-semibold text-xs">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
+                        <thead className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 uppercase font-semibold text-xs">
+                            <tr>
+                                <th className="px-4 py-4 min-w-[200px]">Tên Kỳ Sát Hạch</th>
+                                <th className="px-2 py-4 text-center">Ngày</th>
+                                <th className="px-2 py-4 text-center bg-blue-50 dark:bg-blue-900/30">Hồ sơ / Dự thi</th>
+                                
+                                <th className="px-2 py-4 text-center hidden xl:table-cell">Lý thuyết</th>
+                                <th className="px-2 py-4 text-center hidden xl:table-cell">Mô phỏng</th>
+                                <th className="px-2 py-4 text-center hidden xl:table-cell">Sa hình</th>
+                                <th className="px-2 py-4 text-center hidden xl:table-cell">Đường trường</th>
+                                <th className="px-4 py-4 text-center bg-green-50 dark:bg-green-900/30">Tổng Đạt</th>
+                                <th className="px-4 py-4 text-right">Hành động</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                            {isLoading ? (
+                                <>
+                                    <SkeletonRow />
+                                    <SkeletonRow />
+                                    <SkeletonRow />
+                                    <SkeletonRow />
+                                    <SkeletonRow />
+                                </>
+                            ) : filteredSummaries.length === 0 ? (
                                 <tr>
-                                    <th className="px-4 py-4 min-w-[180px]">Tên Kỳ Sát Hạch</th>
-                                    <th className="px-2 py-4 text-center">Ngày</th>
-                                    <th className="px-2 py-4 text-center bg-blue-50 dark:bg-blue-900/30">Hồ sơ / Dự thi</th>
-                                    
-                                    <th className="px-2 py-4 text-center hidden xl:table-cell">Lý thuyết<br/><span className="text-[10px] font-normal text-gray-500 dark:text-gray-400">(Đạt/Tổng)</span></th>
-                                    <th className="px-2 py-4 text-center hidden xl:table-cell">Mô phỏng<br/><span className="text-[10px] font-normal text-gray-500 dark:text-gray-400">(Đạt/Tổng)</span></th>
-                                    <th className="px-2 py-4 text-center hidden xl:table-cell">Sa hình<br/><span className="text-[10px] font-normal text-gray-500 dark:text-gray-400">(Đạt/Tổng)</span></th>
-                                    <th className="px-2 py-4 text-center hidden xl:table-cell">Đường trường<br/><span className="text-[10px] font-normal text-gray-500 dark:text-gray-400">(Đạt/Tổng)</span></th>
-                                    <th className="px-4 py-4 text-center bg-green-50 dark:bg-green-900/30">Tổng Đạt</th>
-                                    <th className="px-4 py-4 text-right">Hành động</th>
+                                    <td colSpan={9} className="p-12 text-center text-gray-500 dark:text-gray-400">
+                                        <div className="mb-4 text-gray-300 dark:text-gray-600">
+                                            <i className="fa-solid fa-folder-open text-6xl"></i>
+                                        </div>
+                                        <p className="text-lg font-medium">Chưa có dữ liệu kỳ sát hạch</p>
+                                        <p className="text-sm mt-1">Nhấn "Tạo Kỳ Mới" để bắt đầu nhập liệu.</p>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                                {filteredSessions.map((session) => {
-                                    return (
+                            ) : (
+                                filteredSummaries.map((session) => (
                                     <tr key={session.id} className="hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors group">
                                         <td className="px-4 py-4 font-medium text-gray-900 dark:text-white">
                                             <div className="flex flex-col">
                                                 <div className="flex items-center gap-2">
                                                     <i className="fa-solid fa-file-lines text-blue-500"></i>
-                                                    <span>{session.name}</span>
+                                                    <span className="truncate max-w-[250px]">{session.name}</span>
                                                 </div>
+                                                <span className="text-[10px] text-gray-400 mt-0.5 ml-6">Lưu lúc: {new Date(session.createdAt).toLocaleTimeString('vi-VN')}</span>
                                             </div>
                                         </td>
                                         <td className="px-2 py-4 text-center whitespace-nowrap text-xs">
                                             {formatDate(session.reportDate)}
                                         </td>
-                                        {/* Tổng Hồ Sơ / Dự Thi */}
                                         <td className="px-2 py-4 text-center bg-blue-50/50 dark:bg-blue-900/20">
                                             <div className="flex flex-col items-center">
                                                 <span className="font-bold text-gray-800 dark:text-gray-200">{session.grandTotal.totalApplications}</span>
@@ -125,39 +149,38 @@ export const SessionList: React.FC<SessionListProps> = ({ sessions, onSelectSess
                                             </div>
                                         </td>
 
-                                        {/* Lý Thuyết */}
                                         <td className="px-2 py-4 text-center hidden xl:table-cell">
-                                             <span className="text-green-700 dark:text-green-400 font-semibold">{session.grandTotal.theory.pass}</span>
-                                             <span className="text-gray-400 mx-1">/</span>
-                                             <span className="text-gray-600 dark:text-gray-400">{session.grandTotal.theory.total}</span>
+                                             <div className="flex flex-col items-center">
+                                                <span className="text-green-700 dark:text-green-400 font-semibold">{session.grandTotal.theory.pass}</span>
+                                                <span className="text-[10px] text-gray-400">/{session.grandTotal.theory.total}</span>
+                                             </div>
                                         </td>
                                         
-                                        {/* Mô Phỏng */}
                                         <td className="px-2 py-4 text-center hidden xl:table-cell">
-                                             <span className="text-green-700 dark:text-green-400 font-semibold">{session.grandTotal.simulation.pass}</span>
-                                             <span className="text-gray-400 mx-1">/</span>
-                                             <span className="text-gray-600 dark:text-gray-400">{session.grandTotal.simulation.total}</span>
+                                             <div className="flex flex-col items-center">
+                                                <span className="text-green-700 dark:text-green-400 font-semibold">{session.grandTotal.simulation.pass}</span>
+                                                <span className="text-[10px] text-gray-400">/{session.grandTotal.simulation.total}</span>
+                                             </div>
                                         </td>
 
-                                        {/* Sa Hình */}
                                         <td className="px-2 py-4 text-center hidden xl:table-cell">
-                                             <span className="text-green-700 dark:text-green-400 font-semibold">{session.grandTotal.practicalCourse.pass}</span>
-                                             <span className="text-gray-400 mx-1">/</span>
-                                             <span className="text-gray-600 dark:text-gray-400">{session.grandTotal.practicalCourse.total}</span>
+                                             <div className="flex flex-col items-center">
+                                                <span className="text-green-700 dark:text-green-400 font-semibold">{session.grandTotal.practicalCourse.pass}</span>
+                                                <span className="text-[10px] text-gray-400">/{session.grandTotal.practicalCourse.total}</span>
+                                             </div>
                                         </td>
 
-                                        {/* Đường Trường */}
                                         <td className="px-2 py-4 text-center hidden xl:table-cell">
-                                             <span className="text-green-700 dark:text-green-400 font-semibold">{session.grandTotal.onRoad.pass}</span>
-                                             <span className="text-gray-400 mx-1">/</span>
-                                             <span className="text-gray-600 dark:text-gray-400">{session.grandTotal.onRoad.total}</span>
+                                             <div className="flex flex-col items-center">
+                                                <span className="text-green-700 dark:text-green-400 font-semibold">{session.grandTotal.onRoad.pass}</span>
+                                                <span className="text-[10px] text-gray-400">/{session.grandTotal.onRoad.total}</span>
+                                             </div>
                                         </td>
 
-                                        {/* Kết Quả Cuối */}
                                         <td className="px-4 py-4 text-center bg-green-50/50 dark:bg-green-900/20">
                                             <div className="flex flex-col items-center">
                                                 <span className="font-bold text-green-700 dark:text-green-400 text-lg">{session.grandTotal.finalPass}</span>
-                                                <span className="text-[10px] text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-700 px-1.5 py-0.5 rounded-full border border-gray-200 dark:border-gray-600 mt-1">
+                                                <span className="text-[10px] text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-700 px-1.5 py-0.5 rounded-full border border-gray-200 dark:border-gray-600 mt-1 shadow-xs">
                                                     {((session.grandTotal.finalPass / session.grandTotal.totalParticipants * 100) || 0).toFixed(1)}%
                                                 </span>
                                             </div>
@@ -184,12 +207,11 @@ export const SessionList: React.FC<SessionListProps> = ({ sessions, onSelectSess
                                             </button>
                                         </td>
                                     </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );

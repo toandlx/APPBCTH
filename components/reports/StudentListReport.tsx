@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import type { StudentRecord, TrainingUnit } from '../../types';
 import { generateClassSummaryString, generateGhiChu, identifyTrainingUnit } from '../../services/reportUtils';
@@ -59,11 +60,15 @@ const EditableCell = ({ value, id, field, onUpdate }: { value: any, id: string, 
         }
     };
 
+    // Ensure we don't try to render an object as a child
+    const displayValue = typeof value === 'object' && value !== null ? JSON.stringify(value) : value;
+    const editingValue = typeof localValue === 'object' && localValue !== null ? JSON.stringify(localValue) : localValue;
+
     if (isEditing) {
         return (
             <input 
                 type="text" 
-                value={localValue} 
+                value={editingValue} 
                 onChange={(e) => setLocalValue(e.target.value)}
                 onBlur={handleBlur}
                 onKeyDown={handleKeyDown}
@@ -79,7 +84,7 @@ const EditableCell = ({ value, id, field, onUpdate }: { value: any, id: string, 
             className={onUpdate ? "cursor-pointer hover:bg-yellow-50 hover:text-blue-700 transition-colors h-full flex items-center justify-center min-h-[24px]" : ""}
             title={onUpdate ? "Nháy đúp để sửa nhanh" : ""}
         >
-            {value}
+            {displayValue}
         </div>
     );
 };
