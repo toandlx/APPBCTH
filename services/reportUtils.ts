@@ -184,7 +184,8 @@ export const generateClassSummaryString = (students: StudentRecord[]): string =>
 
 export const generateGhiChu = (record: StudentRecord): string => {
     const maHocVien = (record['MÃ HỌC VIÊN'] || '').toString().trim();
-    const isRetake = maHocVien.startsWith('2721') || maHocVien.startsWith('2722');
+    // Cập nhật logic: thêm mã 2411
+    const isRetake = maHocVien.startsWith('2721') || maHocVien.startsWith('2722') || maHocVien.startsWith('2411');
     
     let testsTaken = (record['NỘI DUNG THI'] || '').toString().trim().toUpperCase();
     if (isRetake) return `Thi lại: ${testsTaken}`;

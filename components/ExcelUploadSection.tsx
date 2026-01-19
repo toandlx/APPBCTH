@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { StudentRecord } from '../types';
 
@@ -114,7 +115,7 @@ export const ExcelUploadSection: React.FC<ExcelUploadSectionProps> = ({ onSubmit
                             
                             <p className="font-semibold mb-1">3. Phân loại Học viên:</p>
                             <ul className="list-disc pl-5 space-y-1 text-blue-700">
-                                <li>Mã HV bắt đầu <strong>2721...</strong> hoặc <strong>2722...</strong>: Tính là <strong>Thi lại</strong>.</li>
+                                <li>Mã HV bắt đầu <strong>2721...</strong>, <strong>2722...</strong> hoặc <strong>2411...</strong>: Tính là <strong>Thi lại</strong>.</li>
                                 <li>Các trường hợp còn lại: Tính là <strong>Lần đầu</strong>.</li>
                             </ul>
                         </div>

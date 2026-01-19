@@ -61,7 +61,8 @@ export const processExcelData = (rawRecords: StudentRecord[]): AppData => {
         if (!className) return;
 
         const maHV = String(record['MÃ HỌC VIÊN'] || '').trim();
-        const isRetake = maHV.startsWith('2721') || maHV.startsWith('2722');
+        // Cập nhật logic phân loại: thêm mã 2411
+        const isRetake = maHV.startsWith('2721') || maHV.startsWith('2722') || maHV.startsWith('2411');
         const target = isRetake ? retake : firstTime;
 
         if (!target[className]) target[className] = createEmptyClass(className);
