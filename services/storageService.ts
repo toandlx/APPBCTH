@@ -6,7 +6,7 @@ const UNIT_API_URL = '/api/training-units';
 const SESSION_STORAGE_KEY = 'appbcth_sessions';
 const UNIT_STORAGE_KEY = 'appbcth_units';
 
-console.log("[Storage] v4.0.0 - Production Mode Initialized");
+console.log("[Storage] v4.1.0 - Cloud SQL Sync Optimized");
 
 const tryApi = async <T>(apiCall: () => Promise<T>, fallback: () => T | Promise<T>): Promise<T> => {
     try {
@@ -52,13 +52,11 @@ export const storageService = {
     },
 
     saveSession: async (session: SavedSession): Promise<void> => {
-        // 1. Always Save Local for safety
         const local = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
         const idx = local.findIndex((s: any) => s.id === session.id);
         if (idx >= 0) local[idx] = session; else local.unshift(session);
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(local));
 
-        // 2. Try Cloud
         try {
             const res = await fetch(API_URL, {
                 method: 'POST',
@@ -116,7 +114,6 @@ export const storageService = {
         } catch (e) {}
     },
 
-    // Fix: Add deleteTrainingUnit to handle individual unit deletion
     deleteTrainingUnit: async (id: string): Promise<void> => {
         const local = JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
         localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(local.filter((u: any) => u.id !== id)));
@@ -127,8 +124,7 @@ export const storageService = {
         }
     },
 
-    // Fix: Add importTrainingUnits to handle bulk import from Excel
-    importTrainingUnits: async (units: TrainingUnit[]): Promise<void> => {
+    importTrainingUnits: async (units: TrainingUnit[]): Promise<boolean> => {
         const local = JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
         const updatedLocal = [...local];
         for (const unit of units) {
@@ -137,16 +133,16 @@ export const storageService = {
         }
         localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(updatedLocal));
 
-        for (const unit of units) {
-            try {
-                await fetch(UNIT_API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(unit)
-                });
-            } catch (e) {
-                console.error("[Storage] Failed to sync imported unit to cloud:", unit.code);
-            }
+        try {
+            const res = await fetch(`${UNIT_API_URL}/bulk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(units)
+            });
+            return res.ok;
+        } catch (e) {
+            console.error("[Storage] Failed to sync bulk units to cloud:", e);
+            return false;
         }
     },
 

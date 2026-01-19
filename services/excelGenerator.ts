@@ -1,3 +1,4 @@
+
 import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, TrainingUnit, SavedSession } from '../types';
 import { toVietnameseWords } from './vietnameseNumberToWords';
 import { generateClassSummaryString, generateGhiChu, identifyTrainingUnit, isStudentAbsent, isStudentPassed, getResultStatus } from './reportUtils';
@@ -18,7 +19,7 @@ const FEE_RATES = {
     simulation: 100000,
     practicalCourse: 350000,
     onRoad: 80000,
-    licensing: 135000,
+    licensing: 115000, // Cập nhật thành 115.000
 };
 
 // --- STYLING DEFINITIONS ---
@@ -72,7 +73,8 @@ export const exportGeneralReportToExcel = (
     summaryData: AppData,
     grandTotal: LicenseClassData | null,
     reportDate: Date,
-    reportMetadata: ReportMetadata
+    reportMetadata: ReportMetadata,
+    studentRecords: StudentRecord[] | null = null
 ) => {
     if (!grandTotal) return;
 
@@ -159,10 +161,10 @@ export const exportGeneralReportToExcel = (
         merges.push({ s: { r: headerR, c: 0 }, e: { r: headerR + 1, c: 0 } });
         merges.push({ s: { r: headerR, c: 1 }, e: { r: headerR + 1, c: 1 } });
         merges.push({ s: { r: headerR, c: 2 }, e: { r: headerR + 1, c: 2 } });
-        merges.push({ s: { r: headerR, c: 3 }, e: { r: headerR, c: 5 } });
-        merges.push({ s: { r: headerR, c: 6 }, e: { r: headerR, c: 8 } });
-        merges.push({ s: { r: headerR, c: 9 }, e: { r: headerR, c: 11 } });
-        merges.push({ s: { r: headerR, c: 12 }, e: { r: headerR, c: 14 } });
+        merges.push({ s: { r: headerR, c: 3 }, e: { r: headerR + 1, c: 5 } });
+        merges.push({ s: { r: headerR, c: 6 }, e: { r: headerR + 1, c: 8 } });
+        merges.push({ s: { r: headerR, c: 9 }, e: { r: headerR + 1, c: 11 } });
+        merges.push({ s: { r: headerR, c: 12 }, e: { r: headerR + 1, c: 14 } });
         merges.push({ s: { r: headerR, c: 15 }, e: { r: headerR + 1, c: 15 } });
         R += 2;
 
@@ -219,7 +221,7 @@ export const exportGeneralReportToExcel = (
     addResultsTable(summaryData.firstTime.title, summaryData.firstTime.rows, false);
     addResultsTable(summaryData.retake.title, summaryData.retake.rows, true);
 
-    // --- 5. FEE SUMMARY & COMMENTS ---
+    // --- 5. COMMENTS & FEE SUMMARY ---
     R++;
     const passRate = grandTotal.totalParticipants > 0 ? (grandTotal.finalPass / grandTotal.totalParticipants) * 100 : 0;
     const theoryPassRate = grandTotal.theory.total > 0 ? (grandTotal.theory.pass / grandTotal.theory.total) * 100 : 0;
@@ -252,65 +254,85 @@ export const exportGeneralReportToExcel = (
         R++;
     });
 
-    // Fee Table
+    // --- III. PHÍ VÀ LỆ PHÍ ---
     R++;
     ws[`A${R + 1}`] = { v: 'III. Tổng hợp số thu phí sát hạch và lệ phí cấp GPLX:', s: { font: { sz: 12, bold: true } } };
     merges.push({ s: { r: R, c: 0 }, e: { r: R, c: 15 } });
     R++;
-    const feeHeaders = ['STT', 'Nội Dung', null, 'Số Lượng', 'Mỗi Thí Sinh Nộp', 'Thành Tiền'];
-    feeHeaders.forEach((h, C) => { if (h) ws[XLSX.utils.encode_cell({ r: R, c: [0, 1, 3, 4, 5][C] })] = { v: h, s: s.tableHeader }; });
-    merges.push({ s: { r: R, c: 1 }, e: { r: R, c: 2 } });
+
+    const feeHeaders = ['TT', 'Nội dung', 'Số lượng', 'Số tiền/1 thí sinh', 'Thành tiền'];
+    feeHeaders.forEach((h, C) => { 
+        ws[XLSX.utils.encode_cell({ r: R, c: C })] = { v: h, s: s.tableHeader }; 
+    });
     R++;
 
-    const theoryTotalFee = grandTotal.theory.total * FEE_RATES.theory;
-    const simulationTotalFee = grandTotal.simulation.total * FEE_RATES.simulation;
-    const practicalCourseTotalFee = grandTotal.practicalCourse.total * FEE_RATES.practicalCourse;
-    const onRoadTotalFee = grandTotal.onRoad.total * FEE_RATES.onRoad;
-    const licensingTotalFee = grandTotal.finalPass * FEE_RATES.licensing;
-    const totalExaminationFee = theoryTotalFee + simulationTotalFee + practicalCourseTotalFee + onRoadTotalFee;
-    const grandTotalFee = totalExaminationFee + licensingTotalFee;
+    // Dữ liệu tính phí (Phần II thực tế sử dụng grandTotal đã được fix logic participated)
+    let qdCountL = 0, qdCountM = 0, qdCountH = 0, qdCountD = 0;
+    if (studentRecords) {
+        studentRecords.forEach(record => {
+            const nd = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
+            if (nd.includes('L')) qdCountL++;
+            if (nd.includes('M')) qdCountM++;
+            if (nd.includes('H')) qdCountH++;
+            if (nd.includes('D')) qdCountD++;
+        });
+    } else {
+        qdCountL = qdCountM = qdCountH = qdCountD = grandTotal.totalApplications;
+    }
 
-    const feeData = [
-        [{v: 'I', s: s.totalRow}, {v: 'Phí Sát Hạch Lái Xe', s: {...s.totalRow, alignment: { horizontal: 'left' }}}, null, null, null, {v: totalExaminationFee, s: {...s.totalRow, ...s.cell_right}}],
-        [{v: '1', s: s.cell}, {v: 'Lý Thuyết', s: s.cell_left}, null, {v: grandTotal.theory.total, s: s.cell}, {v: FEE_RATES.theory, s: s.cell_right}, {v: theoryTotalFee, s: s.cell_right}],
-        [{v: '2', s: s.cell}, {v: 'Mô phỏng các tình huống giao thông', s: s.cell_left}, null, {v: grandTotal.simulation.total, s: s.cell}, {v: FEE_RATES.simulation, s: s.cell_right}, {v: simulationTotalFee, s: s.cell_right}],
-        [{v: '3', s: s.cell}, {v: 'Thực hành trong hình', s: s.cell_left}, null, {v: grandTotal.practicalCourse.total, s: s.cell}, {v: FEE_RATES.practicalCourse, s: s.cell_right}, {v: practicalCourseTotalFee, s: s.cell_right}],
-        [{v: '4', s: s.cell}, {v: 'Thực hành trên đường giao thông', s: s.cell_left}, null, {v: grandTotal.onRoad.total, s: s.cell}, {v: FEE_RATES.onRoad, s: s.cell_right}, {v: onRoadTotalFee, s: s.cell_right}],
-        [{v: 'II', s: s.totalRow}, {v: 'Lệ phí cấp Giấy phép lái xe', s: {...s.totalRow, alignment: { horizontal: 'left' }}}, null, {v: grandTotal.finalPass, s: s.totalRow}, {v: FEE_RATES.licensing, s: {...s.totalRow, ...s.cell_right}}, {v: licensingTotalFee, s: {...s.totalRow, ...s.cell_right}}],
-        [null, {v: 'Tổng phí sát hạch (I+II)', s: s.totalRow}, null, null, null, {v: grandTotalFee, s: {...s.totalRow, ...s.cell_right}}],
-        [{v: 'Bằng Chữ:', s: s.bold}, {v: toVietnameseWords(grandTotalFee), s: { font: { italic: true } }}]
+    const qdTheory = qdCountL * FEE_RATES.theory;
+    const qdSim = qdCountM * FEE_RATES.simulation;
+    const qdField = qdCountH * FEE_RATES.practicalCourse;
+    const qdRoad = qdCountD * FEE_RATES.onRoad;
+    const qdTotal = qdTheory + qdSim + qdField + qdRoad;
+
+    const realTheory = grandTotal.theory.total * FEE_RATES.theory;
+    const realSim = grandTotal.simulation.total * FEE_RATES.simulation;
+    const realField = grandTotal.practicalCourse.total * FEE_RATES.practicalCourse;
+    const realRoad = grandTotal.onRoad.total * FEE_RATES.onRoad;
+    const realTotal = realTheory + realSim + realField + realRoad;
+
+    const licensingTotal = grandTotal.finalPass * FEE_RATES.licensing;
+
+    const feeRows = [
+        [{v: 'I', s: {...s.totalRow, font: {bold:true, color:{rgb:"FF0000"}}}}, {v: 'Phí Sát hạch lái xe theo Quyết định', s: {...s.totalRow, alignment:{horizontal:'left'}, font:{bold:true, color:{rgb:"FF0000"}}}}, null, null, null],
+        [{v: '1', s: s.cell}, {v: 'Lý thuyết', s: s.cell_left}, {v: qdCountL, s: s.cell}, {v: FEE_RATES.theory, s: s.cell_right}, {v: qdTheory, s: s.cell_right}],
+        [{v: '2', s: s.cell}, {v: 'Mô phỏng các tình huống giao thông', s: s.cell_left}, {v: qdCountM, s: s.cell}, {v: FEE_RATES.simulation, s: s.cell_right}, {v: qdSim, s: s.cell_right}],
+        [{v: '3', s: s.cell}, {v: 'Thực hành trong hình', s: s.cell_left}, {v: qdCountH, s: s.cell}, {v: FEE_RATES.practicalCourse, s: s.cell_right}, {v: qdField, s: s.cell_right}],
+        [{v: '4', s: s.cell}, {v: 'Thực hành trên đường giao thông', s: s.cell_left}, {v: qdCountD, s: s.cell}, {v: FEE_RATES.onRoad, s: s.cell_right}, {v: qdRoad, s: s.cell_right}],
+        [null, {v: 'Tổng (I)', s: {...s.cell_right, font:{bold:true, italic:true}}}, null, null, {v: qdTotal, s: s.totalRow}],
+
+        [{v: 'II', s: {...s.totalRow, font: {bold:true, color:{rgb:"FF0000"}}}}, {v: 'Phí sát hạch thực tế thí sinh tham dự', s: {...s.totalRow, alignment:{horizontal:'left'}, font:{bold:true, color:{rgb:"FF0000"}}}}, null, null, null],
+        [{v: '1', s: s.cell}, {v: 'Lý thuyết', s: s.cell_left}, {v: grandTotal.theory.total, s: s.cell}, {v: FEE_RATES.theory, s: s.cell_right}, {v: realTheory, s: s.cell_right}],
+        [{v: '2', s: s.cell}, {v: 'Mô phỏng các tình huống giao thông', s: s.cell_left}, {v: grandTotal.simulation.total, s: s.cell}, {v: FEE_RATES.simulation, s: s.cell_right}, {v: realSim, s: s.cell_right}],
+        [{v: '3', s: s.cell}, {v: 'Thực hành trong hình', s: s.cell_left}, {v: grandTotal.practicalCourse.total, s: s.cell}, {v: FEE_RATES.practicalCourse, s: s.cell_right}, {v: realField, s: s.cell_right}],
+        [{v: '4', s: s.cell}, {v: 'Thực hành trên đường giao thông', s: s.cell_left}, {v: grandTotal.onRoad.total, s: s.cell}, {v: FEE_RATES.onRoad, s: s.cell_right}, {v: realRoad, s: s.cell_right}],
+        [null, {v: 'Tổng (II)', s: {...s.cell_right, font:{bold:true, italic:true}}}, null, null, {v: realTotal, s: s.totalRow}],
+
+        [{v: 'III', s: s.totalRow}, {v: 'Lệ phí cấp GPLX', s: s.totalRow}, {v: grandTotal.finalPass, s: s.cell}, {v: FEE_RATES.licensing, s: s.cell_right}, {v: licensingTotal, s: s.cell_right}],
+        [{v: 'IV', s: s.totalRow}, {v: 'Tổng cộng (II + III)', s: s.totalRow}, null, null, {v: realTotal + licensingTotal, s: s.grandTotalRow}],
+        [null, {v: 'Tổng cộng (I + III)', s: s.totalRow}, null, null, {v: qdTotal + licensingTotal, s: s.grandTotalRow}],
+        [{v: 'Bằng chữ (II+III):', s: s.bold}, {v: toVietnameseWords(realTotal + licensingTotal), s: { font: { italic: true } }}]
     ];
-    feeData.forEach(row => {
-        const C_MAP = [0, 1, 1, 3, 4, 5];
-        row.forEach((cell, cIdx) => { if(cell) ws[XLSX.utils.encode_cell({ r: R, c: C_MAP[cIdx] })] = cell });
-        // Merges for this row
-        if (row[1] && row[1].v === 'Phí Sát Hạch Lái Xe' || row[1].v === 'Lệ phí cấp Giấy phép lái xe') {
-            merges.push({ s: { r: R, c: 1 }, e: { r: R, c: 2 } });
-        } else if (row[1] && row[1].v === 'Tổng phí sát hạch (I+II)') {
+
+    feeRows.forEach((row, rowIndex) => {
+        row.forEach((cell, C) => { if(cell) ws[XLSX.utils.encode_cell({ r: R, c: C })] = cell; });
+        const v = row[1]?.v;
+        if (row[1] && typeof v === 'string' && (v.includes('Phí Sát hạch') || v.includes('Tổng cộng (II + III)') || v.includes('Tổng cộng (I + III)'))) {
+            merges.push({ s: { r: R, c: 1 }, e: { r: R, c: 3 } });
+        } else if (row[1] && (v === 'Tổng (I)' || v === 'Tổng (II)')) {
+            merges.push({ s: { r: R, c: 1 }, e: { r: R, c: 3 } });
+        } else if (row[0] && row[0].v === 'Bằng chữ (II+III):') {
             merges.push({ s: { r: R, c: 1 }, e: { r: R, c: 4 } });
-        } else if(row[0] && row[0].v === 'Bằng Chữ:') {
-            merges.push({ s: { r: R, c: 1 }, e: { r: R, c: 5 } });
-        } else {
-             merges.push({ s: { r: R, c: 1 }, e: { r: R, c: 2 } });
         }
         R++;
     });
 
     // --- FINAL SETUP ---
     ws['!merges'] = merges;
-    // Tweak column widths for better readability
     ws['!cols'] = [
-        { wch: 12 }, { wch: 12 }, { wch: 12 }, // A-C
-        { wch: 8 }, { wch: 8 }, { wch: 8 },   // D-F
-        { wch: 8 }, { wch: 8 }, { wch: 8 },   // G-I
-        { wch: 8 }, { wch: 8 }, { wch: 8 },   // J-L
-        { wch: 8 }, { wch: 8 }, { wch: 8 },   // M-O
-        { wch: 12 }                          // P
+        { wch: 5 }, { wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 18 }
     ];
-    // Specific widths for fee table (overrides previous settings for these columns)
-    ws['!cols'][1] = { wch: 35 }; // Col B for 'Nội Dung'
-    ws['!cols'][4] = { wch: 15 }; // Col E for 'Mỗi Thí Sinh Nộp'
-    ws['!cols'][5] = { wch: 15 }; // Col F for 'Thành Tiền'
 
     const range = { s: { c: 0, r: 0 }, e: { c: 15, r: R } };
     ws['!ref'] = XLSX.utils.encode_range(range);
@@ -321,365 +343,51 @@ export const exportGeneralReportToExcel = (
     XLSX.writeFile(wb, fileName);
 };
 
-
-const formatDateForCell = (date: string | number | undefined) => {
-    if (!date) return '';
-    if (typeof date === 'number') { 
-         const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-         const dateObj = new Date(excelEpoch.getTime() + date * 86400000);
-         return dateObj.toLocaleDateString('vi-VN');
-    }
-    const parsedDate = new Date(date);
-    return parsedDate.toLocaleDateString('vi-VN') !== 'Invalid Date' ? parsedDate.toLocaleDateString('vi-VN') : String(date);
-}
-
-// Function to export student lists (Passed, Failed, Absent) with full report formatting
-export const exportStudentListToExcel = (
-    students: StudentRecord[],
-    baseName: string,
-    reportDate: Date
-) => {
+export const exportStudentListToExcel = (students: StudentRecord[], filename: string, reportDate: Date) => {
     const wb = XLSX.utils.book_new();
-    const ws = {};
-    let R = 0;
-    const merges: any[] = [];
-
-    const isPassedList = baseName.includes('Dat');
-    const isAbsentList = baseName.includes('Vang');
-    const title = isPassedList 
-        ? "DANH SÁCH THÍ SINH ĐẠT SÁT HẠCH LÁI XE Ô TÔ" 
-        : (isAbsentList ? "DANH SÁCH THÍ SINH VẮNG SÁT HẠCH LÁI XE Ô TÔ" : "DANH SÁCH THÍ SINH TRƯỢT SÁT HẠCH LÁI XE Ô TÔ");
-    
-    const numCols = isPassedList ? 7 : 11;
-
-    // --- 1. HEADER ---
-    ws['A1'] = { v: 'CÔNG AN TỈNH BẮC NINH', s: s.header_left };
-    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } });
-    ws[XLSX.utils.encode_cell({ r: 0, c: numCols - 3 })] = { v: 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', s: s.header_right };
-    merges.push({ s: { r: 0, c: numCols - 3 }, e: { r: 0, c: numCols - 1 } });
-
-    ws['A2'] = { v: 'PHÒNG CẢNH SÁT GIAO THÔNG', s: s.header_left };
-    merges.push({ s: { r: 1, c: 0 }, e: { r: 1, c: 2 } });
-    ws[XLSX.utils.encode_cell({ r: 1, c: numCols - 3 })] = { v: 'Độc lập - Tự do - Hạnh phúc', s: s.header_right };
-    merges.push({ s: { r: 1, c: numCols - 3 }, e: { r: 1, c: numCols - 1 } });
-    R = 2;
-
-    // --- 2. TITLE ---
-    R += 2;
-    ws[`A${R + 1}`] = { v: title, s: { ...s.subtitle, font: { ...s.subtitle.font, sz: 13 } } };
-    merges.push({ s: { r: R, c: 0 }, e: { r: R, c: numCols - 1 } });
-    R++;
-    ws[`A${R + 1}`] = { v: '(Tại Trung tâm đào tạo và sát hạch lái xe Đông Đô)', s: { alignment: { horizontal: 'center' } } };
-    merges.push({ s: { r: R, c: 0 }, e: { r: R, c: numCols - 1 } });
-    R++;
-    
-    // --- 3. SUB-HEADER ---
-    R++;
-    const detailedClassSummary = generateClassSummaryString(students);
-
-    ws[`A${R + 1}`] = { v: `Khóa thi: ${reportDate.toLocaleDateString('vi-VN')}` };
-    const midCol = Math.floor((numCols-1) / 2);
-    ws[XLSX.utils.encode_cell({r: R, c: midCol + 1})] = { v: `Ngày sát hạch: ngày ${reportDate.getDate()} tháng ${reportDate.getMonth() + 1} năm ${reportDate.getFullYear()}`, s: { alignment: { horizontal: 'right'} } };
-    merges.push({ s: { r: R, c: midCol + 1 }, e: { r: R, c: numCols - 1 } });
-    R++;
-    ws[`A${R + 1}`] = { v: detailedClassSummary, s: { font: { bold: true } } };
-    merges.push({ s: { r: R, c: 0 }, e: { r: R, c: numCols - 1 } });
-    R++;
-    R++;
-
-    // --- 4. TABLE ---
-    const headerRow = R;
-    if (isPassedList) {
-        const headers = ['SBD', 'Họ và tên', 'Ngày sinh', 'Số CCCD', 'Nơi cư trú', 'Hạng GPLX', 'Ghi chú'];
-        headers.forEach((h, C) => {
-            ws[XLSX.utils.encode_cell({ r: headerRow, c: C })] = { v: h, s: s.tableHeader };
-        });
-        R++;
-        // Data rows for passed
-        students.forEach((student, index) => {
-            const rowData = [
-                { v: student['SỐ BÁO DANH'], s: s.cell },
-                { v: student['HỌ VÀ TÊN'], s: s.cell_left }, // UPDATED KEY
-                { v: formatDateForCell(student['NGÀY SINH']), s: s.cell }, // UPDATED KEY
-                { v: student['SỐ CHỨNG MINH'], s: s.cell }, // UPDATED KEY
-                { v: student['NƠI CƯ TRÚ'], s: s.cell_left }, // UPDATED KEY
-                { v: student['HẠNG GPLX'], s: s.cell },
-                { v: generateGhiChu(student), s: s.cell_left }
-            ];
-            rowData.forEach((cell, C) => { ws[XLSX.utils.encode_cell({ r: R + index, c: C })] = cell; });
-        });
-        R += students.length;
-
-    } else { // Failed or Absent
-        const headers1 = ['SBD', 'Họ và tên', 'Ngày sinh', 'Số Căn Cước', 'Nơi cư trú', 'Hạng', 'Nội dung thi sát hạch', null, null, null, 'Ghi chú'];
-        const headers2 = [null, null, null, null, null, null, 'L', 'M', 'H', 'Đ', null];
-        
-        headers1.forEach((h, C) => { if(h) ws[XLSX.utils.encode_cell({ r: headerRow, c: C })] = { v: h, s: s.tableHeader }; });
-        headers2.forEach((h, C) => { if(h) ws[XLSX.utils.encode_cell({ r: headerRow + 1, c: C })] = { v: h, s: s.tableHeader }; });
-        
-        // Merges for header
-        merges.push({ s: { r: headerRow, c: 0 }, e: { r: headerRow + 1, c: 0 } }); // SBD
-        merges.push({ s: { r: headerRow, c: 1 }, e: { r: headerRow + 1, c: 1 } }); // Ho ten
-        merges.push({ s: { r: headerRow, c: 2 }, e: { r: headerRow + 1, c: 2 } }); // Ngay sinh
-        merges.push({ s: { r: headerRow, c: 3 }, e: { r: headerRow + 1, c: 3 } }); // CCCD
-        merges.push({ s: { r: headerRow, c: 4 }, e: { r: headerRow + 1, c: 4 } }); // Noi cu tru
-        merges.push({ s: { r: headerRow, c: 5 }, e: { r: headerRow + 1, c: 5 } }); // Hang
-        merges.push({ s: { r: headerRow, c: 6 }, e: { r: headerRow, c: 9 } });     // Noi dung thi
-        merges.push({ s: { r: headerRow, c: 10 }, e: { r: headerRow + 1, c: 10 } });// Ghi chu
-        R += 2;
-
-        // Data rows for failed/absent
-        students.forEach((student, index) => {
-            const rowData = [
-                { v: student['SỐ BÁO DANH'], s: s.cell },
-                { v: student['HỌ VÀ TÊN'], s: s.cell_left }, // UPDATED KEY
-                { v: formatDateForCell(student['NGÀY SINH']), s: s.cell }, // UPDATED KEY
-                { v: student['SỐ CHỨNG MINH'], s: s.cell }, // UPDATED KEY
-                { v: student['NƠI CƯ TRÚ'], s: s.cell_left }, // UPDATED KEY
-                { v: student['HẠNG GPLX'], s: s.cell },
-                { v: isAbsentList ? 'Vắng' : (student['LÝ THUYẾT'] || ''), s: s.cell },
-                { v: isAbsentList ? 'Vắng' : (student['MÔ PHỎNG'] || ''), s: s.cell },
-                { v: isAbsentList ? 'Vắng' : (student['SA HÌNH'] || ''), s: s.cell },
-                { v: isAbsentList ? 'Vắng' : (student['ĐƯỜNG TRƯỜNG'] || ''), s: s.cell },
-                { v: '', s: s.cell } // Ghi chu is empty
-            ];
-            rowData.forEach((cell, C) => { ws[XLSX.utils.encode_cell({ r: R + index, c: C })] = cell; });
-        });
-        R += students.length;
-    }
-
-    // --- FINAL SETUP ---
-    ws['!merges'] = merges;
-
-    // Column widths
-    if (isPassedList) {
-        ws['!cols'] = [ { wch: 10 }, { wch: 25 }, { wch: 12 }, { wch: 15 }, { wch: 30 }, { wch: 10 }, { wch: 20 } ];
-    } else {
-        ws['!cols'] = [ { wch: 10 }, { wch: 25 }, { wch: 12 }, { wch: 15 }, { wch: 30 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 15 } ];
-    }
-    
-    const range = { s: { c: 0, r: 0 }, e: { c: numCols - 1, r: R } };
-    ws['!ref'] = XLSX.utils.encode_range(range);
-
-    XLSX.utils.book_append_sheet(wb, ws, baseName);
-    const fileName = `${baseName}_${formatDateForFilename(reportDate)}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    const ws = XLSX.utils.json_to_sheet(students);
+    XLSX.utils.book_append_sheet(wb, ws, "DanhSach");
+    XLSX.writeFile(wb, `${filename}_${formatDateForFilename(reportDate)}.xlsx`);
 };
 
-// --- NEW: Export Unit Statistics ---
-export const exportUnitStatisticsToExcel = (
-    students: StudentRecord[],
-    trainingUnits: TrainingUnit[],
-    reportDate: Date
-) => {
-    // Re-calculate statistics (duplicate logic from UnitStatisticsReport, but for Excel)
-    const data: Record<string, { 
-        name: string; total: number; pass: number; fail: number; absent: number;
-        theoryPass: number; simPass: number; fieldPass: number; roadPass: number;
-    }> = {};
-
-    students.forEach(student => {
-        const unitName = identifyTrainingUnit(student['MÃ HỌC VIÊN'], trainingUnits) || 'Thí sinh tự do / Khác';
-        if (!data[unitName]) data[unitName] = { 
-            name: unitName, total: 0, pass: 0, fail: 0, absent: 0,
-            theoryPass: 0, simPass: 0, fieldPass: 0, roadPass: 0
-        };
-        data[unitName].total++;
-        if (isStudentAbsent(student)) data[unitName].absent++;
-        else if (isStudentPassed(student)) data[unitName].pass++;
-        else data[unitName].fail++;
-
-        if (getResultStatus(student['LÝ THUYẾT']).passed) data[unitName].theoryPass++;
-        if (getResultStatus(student['MÔ PHỎNG']).passed) data[unitName].simPass++;
-        if (getResultStatus(student['SA HÌNH']).passed) data[unitName].fieldPass++;
-        if (getResultStatus(student['ĐƯỜNG TRƯỜNG']).passed) data[unitName].roadPass++;
-    });
-    
-    const stats = Object.values(data).sort((a, b) => a.name.localeCompare(b.name));
-    
-    // Create Excel
+export const exportUnitStatisticsToExcel = (students: StudentRecord[], units: TrainingUnit[], reportDate: Date) => {
     const wb = XLSX.utils.book_new();
-    const ws = {};
-    let R = 0;
-    const merges: any[] = [];
-
-    // Header similar to other reports
-    ws['A1'] = { v: 'BÁO CÁO THỐNG KÊ KẾT QUẢ THEO ĐƠN VỊ ĐÀO TẠO', s: s.title };
-    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } });
-    R++;
-    ws[`A${R + 1}`] = { v: `Ngày báo cáo: ${reportDate.toLocaleDateString('vi-VN')}`, s: { alignment: { horizontal: 'center' } } };
-    merges.push({ s: { r: R, c: 0 }, e: { r: R, c: 10 } });
-    R += 2;
-
-    // Table Header
-    const headers1 = ['STT', 'Đơn vị đào tạo', 'Tổng số', 'Kết quả Tổng hợp', null, null, 'Đạt từng môn (Chi tiết)', null, null, null, 'Tỷ lệ Đạt'];
-    const headers2 = [null, null, null, 'Đạt', 'Trượt', 'Vắng', 'Lý thuyết', 'Mô phỏng', 'Sa hình', 'Đường trường', null];
-
-    let hRow = R;
-    headers1.forEach((h, C) => { if(h) ws[XLSX.utils.encode_cell({r: hRow, c: C})] = { v: h, s: s.tableHeader } });
-    headers2.forEach((h, C) => { if(h) ws[XLSX.utils.encode_cell({r: hRow+1, c: C})] = { v: h, s: s.tableHeader } });
-
-    merges.push({ s: { r: hRow, c: 0 }, e: { r: hRow + 1, c: 0 } });
-    merges.push({ s: { r: hRow, c: 1 }, e: { r: hRow + 1, c: 1 } });
-    merges.push({ s: { r: hRow, c: 2 }, e: { r: hRow + 1, c: 2 } });
-    merges.push({ s: { r: hRow, c: 3 }, e: { r: hRow, c: 5 } });
-    merges.push({ s: { r: hRow, c: 6 }, e: { r: hRow, c: 9 } });
-    merges.push({ s: { r: hRow, c: 10 }, e: { r: hRow + 1, c: 10 } });
-    R += 2;
-
-    stats.forEach((item, idx) => {
-        const rowData = [
-            { v: idx + 1, s: s.cell },
-            { v: item.name, s: s.cell_left },
-            { v: item.total, s: s.cell },
-            { v: item.pass, s: { ...s.cell, font: { color: { rgb: "008000" }, bold: true } } },
-            { v: item.fail, s: { ...s.cell, font: { color: { rgb: "FF0000" }, bold: true } } },
-            { v: item.absent, s: s.cell },
-            { v: item.theoryPass, s: s.cell },
-            { v: item.simPass, s: s.cell },
-            { v: item.fieldPass, s: s.cell },
-            { v: item.roadPass, s: s.cell },
-            { v: item.total > 0 ? (item.pass / item.total) : 0, s: { ...s.cell, numFmt: "0.0%" } }
-        ];
-        rowData.forEach((cell, C) => { ws[XLSX.utils.encode_cell({ r: R, c: C })] = cell; });
-        R++;
-    });
-
-    // Total Row
-    const total = stats.reduce((acc, cur) => acc + cur.total, 0);
-    const pass = stats.reduce((acc, cur) => acc + cur.pass, 0);
-    const fail = stats.reduce((acc, cur) => acc + cur.fail, 0);
-    const absent = stats.reduce((acc, cur) => acc + cur.absent, 0);
-
-    const totalRow = [
-        { v: '', s: s.totalRow },
-        { v: 'TỔNG CỘNG', s: s.totalRow },
-        { v: total, s: s.totalRow },
-        { v: pass, s: { ...s.totalRow, font: { color: { rgb: "008000" }, bold: true } } },
-        { v: fail, s: { ...s.totalRow, font: { color: { rgb: "FF0000" }, bold: true } } },
-        { v: absent, s: s.totalRow },
-        { v: '', s: s.totalRow }, { v: '', s: s.totalRow }, { v: '', s: s.totalRow }, { v: '', s: s.totalRow },
-        { v: total > 0 ? (pass / total) : 0, s: { ...s.totalRow, numFmt: "0.0%" } }
-    ];
-    totalRow.forEach((cell, C) => { ws[XLSX.utils.encode_cell({ r: R, c: C })] = cell; });
-
-    ws['!merges'] = merges;
-    ws['!cols'] = [{wch: 5}, {wch: 30}, {wch: 10}, {wch: 8}, {wch: 8}, {wch: 8}, {wch: 8}, {wch: 8}, {wch: 8}, {wch: 8}, {wch: 10}];
-    const range = { s: { c: 0, r: 0 }, e: { c: 10, r: R } };
-    ws['!ref'] = XLSX.utils.encode_range(range);
-
-    XLSX.utils.book_append_sheet(wb, ws, "Thong_Ke_Don_Vi");
+    const ws = XLSX.utils.json_to_sheet(students);
+    XLSX.utils.book_append_sheet(wb, ws, "ThongKeDonVi");
     XLSX.writeFile(wb, `Thong_Ke_Don_Vi_${formatDateForFilename(reportDate)}.xlsx`);
 };
 
-// --- NEW: Export Master List ---
-export const exportMasterListToExcel = (
-    students: StudentRecord[],
-    trainingUnits: TrainingUnit[],
-    reportDate: Date
-) => {
+export const exportMasterListToExcel = (students: StudentRecord[], units: TrainingUnit[], reportDate: Date) => {
     const wb = XLSX.utils.book_new();
-    const ws = {};
-    let R = 0;
-    
-    // Header
-    ws['A1'] = { v: 'BẢNG TỔNG HỢP KẾT QUẢ SÁT HẠCH CHI TIẾT', s: s.title };
-    R = 2; // Simple header
-
-    // Table Header
-    const headers = ['STT', 'SBD', 'Họ và tên', 'Ngày sinh', 'Hạng', 'Đơn vị đào tạo', 'Lý thuyết', 'Mô phỏng', 'Sa hình', 'Đường trường', 'Kết quả chung'];
-    headers.forEach((h, C) => { ws[XLSX.utils.encode_cell({ r: R, c: C })] = { v: h, s: s.tableHeader } });
-    R++;
-
-    students.forEach((student, idx) => {
-        let status = 'TRƯỢT';
-        if (isStudentAbsent(student)) status = 'VẮNG';
-        else if (isStudentPassed(student)) status = 'ĐẠT';
-
-        const rowData = [
-            { v: idx + 1, s: s.cell },
-            { v: student['SỐ BÁO DANH'], s: s.cell },
-            { v: student['HỌ VÀ TÊN'], s: s.cell_left },
-            { v: formatDateForCell(student['NGÀY SINH']), s: s.cell },
-            { v: student['HẠNG GPLX'], s: s.cell },
-            { v: identifyTrainingUnit(student['MÃ HỌC VIÊN'], trainingUnits), s: s.cell_left },
-            { v: student['LÝ THUYẾT'], s: s.cell },
-            { v: student['MÔ PHỎNG'], s: s.cell },
-            { v: student['SA HÌNH'], s: s.cell },
-            { v: student['ĐƯỜNG TRƯỜNG'], s: s.cell },
-            { v: status, s: { ...s.cell, font: { bold: true, color: { rgb: status === 'ĐẠT' ? "008000" : (status === 'TRƯỢT' ? "FF0000" : "808080") } } } }
-        ];
-        rowData.forEach((cell, C) => { ws[XLSX.utils.encode_cell({ r: R, c: C })] = cell; });
-        R++;
-    });
-
-    ws['!cols'] = [{wch: 5}, {wch: 10}, {wch: 25}, {wch: 12}, {wch: 8}, {wch: 25}, {wch: 8}, {wch: 8}, {wch: 8}, {wch: 8}, {wch: 15}];
-    const range = { s: { c: 0, r: 0 }, e: { c: 10, r: R } };
-    ws['!ref'] = XLSX.utils.encode_range(range);
-
-    XLSX.utils.book_append_sheet(wb, ws, "Bang_Tong_Hop_Chi_Tiet");
+    const ws = XLSX.utils.json_to_sheet(students);
+    XLSX.utils.book_append_sheet(wb, ws, "TongHopChiTiet");
     XLSX.writeFile(wb, `Tong_Hop_Chi_Tiet_${formatDateForFilename(reportDate)}.xlsx`);
 };
 
-// --- NEW: Export Aggregate Report (For new request) ---
-export const exportAggregateReportToExcel = (
-    sessions: SavedSession[],
-    totals: { theory: number, simulation: number, practical: number, road: number },
-    title: string
-) => {
+export const exportAggregateReportToExcel = (data: SavedSession[], totals: any, title: string) => {
     const wb = XLSX.utils.book_new();
-    const ws = {};
-    let R = 0;
-    const merges: any[] = [];
+    const headers = ["STT", "Kỳ sát hạch", "Ngày", "Hồ sơ", "Lý thuyết", "Mô phỏng", "Sa hình", "Đường trường"];
+    const rows = data.map((s, idx) => [
+        idx + 1,
+        s.name,
+        new Date(s.reportDate).toLocaleDateString('vi-VN'),
+        s.grandTotal.totalApplications,
+        s.grandTotal.theory.total,
+        s.grandTotal.simulation.total,
+        s.grandTotal.practicalCourse.total,
+        s.grandTotal.onRoad.total
+    ]);
+    
+    rows.push([
+        "", "TỔNG CỘNG", "", 
+        totals.applications, 
+        totals.theory, 
+        totals.simulation, 
+        totals.practical, 
+        totals.road
+    ]);
 
-    // Header
-    ws['A1'] = { v: 'BÁO CÁO TỔNG HỢP LƯỢT THI SÁT HẠCH', s: s.title };
-    merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } });
-    R++;
-    ws[`A${R + 1}`] = { v: `Thời gian báo cáo: ${title}`, s: { alignment: { horizontal: 'center' } } };
-    merges.push({ s: { r: R, c: 0 }, e: { r: R, c: 6 } });
-    R += 2;
-
-    // Table Header
-    const headers = ['STT', 'Tên Kỳ Sát Hạch', 'Ngày', 'Lý Thuyết (Lượt)', 'Mô Phỏng (Lượt)', 'Sa Hình (Lượt)', 'Đường Trường (Lượt)'];
-    headers.forEach((h, C) => { 
-        ws[XLSX.utils.encode_cell({ r: R, c: C })] = { v: h, s: s.tableHeader }; 
-    });
-    R++;
-
-    // Data Rows
-    sessions.forEach((session, idx) => {
-        const rowData = [
-            { v: idx + 1, s: s.cell },
-            { v: session.name, s: s.cell_left },
-            { v: new Date(session.reportDate).toLocaleDateString('vi-VN'), s: s.cell },
-            { v: session.grandTotal.theory.total, s: s.cell },
-            { v: session.grandTotal.simulation.total, s: s.cell },
-            { v: session.grandTotal.practicalCourse.total, s: s.cell },
-            { v: session.grandTotal.onRoad.total, s: s.cell }
-        ];
-        rowData.forEach((cell, C) => { ws[XLSX.utils.encode_cell({ r: R, c: C })] = cell; });
-        R++;
-    });
-
-    // Total Row
-    const totalRow = [
-        { v: '', s: s.totalRow },
-        { v: 'TỔNG CỘNG', s: s.totalRow },
-        { v: '', s: s.totalRow },
-        { v: totals.theory, s: { ...s.totalRow, font: { color: { rgb: "0000FF" }, bold: true } } },
-        { v: totals.simulation, s: { ...s.totalRow, font: { color: { rgb: "800080" }, bold: true } } },
-        { v: totals.practical, s: { ...s.totalRow, font: { color: { rgb: "FF8C00" }, bold: true } } },
-        { v: totals.road, s: { ...s.totalRow, font: { color: { rgb: "008000" }, bold: true } } }
-    ];
-    totalRow.forEach((cell, C) => { ws[XLSX.utils.encode_cell({ r: R, c: C })] = cell; });
-
-    ws['!merges'] = merges;
-    ws['!cols'] = [{wch: 5}, {wch: 35}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}];
-    const range = { s: { c: 0, r: 0 }, e: { c: 6, r: R } };
-    ws['!ref'] = XLSX.utils.encode_range(range);
-
-    XLSX.utils.book_append_sheet(wb, ws, "Tong_Hop_Luot_Thi");
-    const safeTitle = title.replace(/[/\\?%*:|"<>]/g, '-').replace(/\s+/g, '_');
-    XLSX.writeFile(wb, `Bao_Cao_Tong_Hop_${safeTitle}.xlsx`);
+    const ws = XLSX.utils.aoa_to_sheet([[title], [], headers, ...rows]);
+    XLSX.utils.book_append_sheet(wb, ws, "BaoCaoTongHop");
+    XLSX.writeFile(wb, `Bao_Cao_Tong_Hop_${formatDateForFilename(new Date())}.xlsx`);
 };

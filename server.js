@@ -4,7 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const { Pool } = require('pg');
 
-const SERVER_VERSION = '4.0.4';
+const SERVER_VERSION = '4.0.5';
 console.log(`\n\n[APPBCTH] Starting Server v${SERVER_VERSION}`);
 
 const app = express();
@@ -14,7 +14,6 @@ let pool = null;
 let isDbConnected = false;
 let lastDbError = null;
 
-// Thu thập cấu hình từ môi trường
 const INSTANCE_NAME = (process.env.INSTANCE_CONNECTION_NAME || process.env.CLOUD_SQL_CONNECTION_NAME || '').trim();
 const DB_USER = (process.env.DB_USER || 'postgres').trim();
 const DB_PASS = (process.env.DB_PASSWORD || 'Appbaocao1!').trim();
@@ -75,7 +74,6 @@ connectWithRetry();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Lấy danh sách tóm tắt (nhẹ)
 app.get('/api/sessions/summary', async (req, res) => {
     if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
     try {
@@ -87,7 +85,6 @@ app.get('/api/sessions/summary', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Lấy toàn bộ dữ liệu (cho tra cứu) - FIX: Bổ sung endpoint này
 app.get('/api/sessions', async (req, res) => {
     if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
     try {
@@ -144,6 +141,34 @@ app.post('/api/training-units', async (req, res) => {
             [u.id, u.code, u.name, u.created_at || Date.now()]
         );
         res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Endpoint nhập hàng loạt
+app.post('/api/training-units/bulk', async (req, res) => {
+    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
+    const units = req.body;
+    if (!Array.isArray(units)) return res.status(400).json({ error: "Invalid data" });
+    
+    try {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const u of units) {
+                await client.query(
+                    `INSERT INTO training_units (id, code, name, created_at) VALUES ($1, $2, $3, $4)
+                     ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name`,
+                    [u.id, u.code, u.name, u.created_at || Date.now()]
+                );
+            }
+            await client.query('COMMIT');
+            res.json({ success: true, count: units.length });
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

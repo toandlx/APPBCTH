@@ -1,6 +1,6 @@
 
 import React from 'react';
-import type { AppData, LicenseClassData, ReportMetadata } from '../../types';
+import type { AppData, LicenseClassData, ReportMetadata, StudentRecord } from '../../types';
 import { Header } from './Header';
 import { Summary } from './Summary';
 import { ResultsTable } from './ResultsTable';
@@ -12,9 +12,10 @@ interface GeneralReportProps {
     grandTotal: LicenseClassData | null;
     reportDate: Date;
     reportMetadata: ReportMetadata;
+    studentRecords: StudentRecord[] | null;
 }
 
-export const GeneralReport: React.FC<GeneralReportProps> = ({ appData, grandTotal, reportDate, reportMetadata }) => {
+export const GeneralReport: React.FC<GeneralReportProps> = ({ appData, grandTotal, reportDate, reportMetadata, studentRecords }) => {
     return (
         <>
             <Header reportDate={reportDate} />
@@ -33,7 +34,7 @@ export const GeneralReport: React.FC<GeneralReportProps> = ({ appData, grandTota
                     <ResultsTable data={appData.retake.rows} title={appData.retake.title} isRetakeTable={true} grandTotal={grandTotal}/>
                 </div>
                 <div className="mt-8">
-                    <FeeSummaryReport grandTotal={grandTotal} reportMetadata={reportMetadata} />
+                    <FeeSummaryReport grandTotal={grandTotal} reportMetadata={reportMetadata} studentRecords={studentRecords} />
                 </div>
             </main>
         </>

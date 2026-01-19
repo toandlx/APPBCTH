@@ -11,9 +11,9 @@ interface State {
     error: Error | null; 
 }
 
-// FIX: Directly extending 'Component' and using the Props/State generics to ensure that 'this.props' is correctly inherited and recognized by the TypeScript compiler.
+// FIX: Extending the 'Component' class directly from the named import ensures that 'this.props' and 'this.state' are correctly inherited and accessible within the class methods.
 class ErrorBoundary extends Component<Props, State> {
-    // FIX: Initialize state as a class property for better compatibility with strict TypeScript configurations.
+    // FIX: Initializing state as a class property ensures it matches the 'State' interface and is compatible with React's internal state management.
     public state: State = { hasError: false, error: null };
 
     constructor(props: Props) {
@@ -29,7 +29,7 @@ class ErrorBoundary extends Component<Props, State> {
     }
 
     render() {
-        // FIX: Accessing this.state is now safe as it's properly inherited and declared.
+        // FIX: Accessing this.state is now correctly resolved through explicit inheritance from Component.
         if (this.state.hasError) {
             return (
                 <div className="flex flex-col items-center justify-center h-screen bg-red-50 p-6 text-center">
@@ -44,9 +44,8 @@ class ErrorBoundary extends Component<Props, State> {
             );
         }
         
-        // FIX: Destructuring children from this.props to ensure property access is correctly typed and explicit for the compiler.
-        const { children } = this.props;
-        return children;
+        // FIX: Accessing this.props.children; with ErrorBoundary extending Component, 'this.props' is correctly typed according to the 'Props' interface.
+        return this.props.children || null;
     }
 }
 

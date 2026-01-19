@@ -8,7 +8,7 @@ export const normalizeRecord = (record: any): StudentRecord => {
     const keyMap: {[key: string]: string} = {
         'SỐ BÁO DANH': 'SỐ BÁO DANH', 'SBD': 'SỐ BÁO DANH', 'SO BAO DANH': 'SỐ BÁO DANH', 'SỐ BD': 'SỐ BÁO DANH',
         'MÃ HỌC VIÊN': 'MÃ HỌC VIÊN', 'MÃ HV': 'MÃ HỌC VIÊN', 'MAHV': 'MÃ HỌC VIÊN', 'MADK': 'MÃ HỌC VIÊN', 'MÃ ĐK': 'MÃ HỌC VIÊN', 'MÃ SỐ': 'MÃ HỌC VIÊN', 'MA SO': 'MÃ HỌC VIÊN',
-        'HỌ VÀ TÊN': 'HỌ VÀ TÊN', 'HO VA TEN': 'HỌ VÀ TÊN', 'HỌ TÊN': 'HỌ VÀ TÊN', 'TÊN': 'HỌ VÀ TÊN', 'TEN HOC VIEN': 'HỌ VÀ TÊN',
+        'HỌ VÀ TÊN': 'HỌ VÀ TÊN', 'HO VA TEN': 'HỌ VÀ TÊN', 'HỌ TÊN': 'HỌ TÊN', 'TÊN': 'HỌ VÀ TÊN', 'TEN HOC VIEN': 'HỌ VÀ TÊN',
         'HẠNG GPLX': 'HẠNG GPLX', 'HẠNG': 'HẠNG GPLX', 'HANG': 'HẠNG GPLX', 'HANG XE': 'HẠNG GPLX', 'HẠNG ĐĂNG KÝ': 'HẠNG GPLX',
         'NỘI DUNG THI': 'NỘI DUNG THI', 'ND THI': 'NỘI DUNG THI', 'NDSH': 'NỘI DUNG THI', 'NỘI DUNG': 'NỘI DUNG THI',
         'LÝ THUYẾT': 'LÝ THUYẾT', 'LT': 'LÝ THUYẾT', 'LY THUYET': 'LÝ THUYẾT', 'ĐIỂM LT': 'LÝ THUYẾT', 'KQ LT': 'LÝ THUYẾT',
@@ -70,18 +70,45 @@ export const processExcelData = (rawRecords: StudentRecord[]): AppData => {
         data.totalApplications++;
         if (!isStudentAbsent(record)) data.totalParticipants++;
 
-        // Subject stats
-        const lt = getResultStatus(record['LÝ THUYẾT']);
-        if (lt.participated) { data.theory.total++; if (lt.passed) data.theory.pass++; }
+        // Chuẩn hóa nội dung thi để quét ký tự
+        const noiDung = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
+
+        // Logic mới: Chỉ tăng total các môn nếu thí sinh không vắng mặt ở môn đó
+        // 1. Lý thuyết (L)
+        if (noiDung.includes('L')) {
+            const status = getResultStatus(record['LÝ THUYẾT']);
+            if (status.participated) {
+                data.theory.total++;
+                if (status.passed) data.theory.pass++;
+            }
+        }
         
-        const mp = getResultStatus(record['MÔ PHỎNG']);
-        if (mp.participated) { data.simulation.total++; if (mp.passed) data.simulation.pass++; }
+        // 2. Mô phỏng (M)
+        if (noiDung.includes('M')) {
+            const status = getResultStatus(record['MÔ PHỎNG']);
+            if (status.participated) {
+                data.simulation.total++;
+                if (status.passed) data.simulation.pass++;
+            }
+        }
 
-        const sh = getResultStatus(record['SA HÌNH']);
-        if (sh.participated) { data.practicalCourse.total++; if (sh.passed) data.practicalCourse.pass++; }
+        // 3. Sa hình (H)
+        if (noiDung.includes('H')) {
+            const status = getResultStatus(record['SA HÌNH']);
+            if (status.participated) {
+                data.practicalCourse.total++;
+                if (status.passed) data.practicalCourse.pass++;
+            }
+        }
 
-        const dt = getResultStatus(record['ĐƯỜNG TRƯỜNG']);
-        if (dt.participated) { data.onRoad.total++; if (dt.passed) data.onRoad.pass++; }
+        // 4. Đường trường (D/Đ)
+        if (noiDung.includes('D')) {
+            const status = getResultStatus(record['ĐƯỜNG TRƯỜNG']);
+            if (status.participated) {
+                data.onRoad.total++;
+                if (status.passed) data.onRoad.pass++;
+            }
+        }
 
         if (isStudentPassed(record)) data.finalPass++;
     });

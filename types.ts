@@ -46,9 +46,12 @@ export interface StudentRecord {
 export interface ConflictWarning {
     studentName: string;
     studentId: string;
-    conflictPart: string; // L, M, H, D
+    conflictPart: string; // Mô tả lỗi
     previousSessionName: string;
     previousDate: string;
+    // Bổ sung để phục vụ sửa lỗi
+    sourceSessionId: string; // Kỳ sát hạch đang chứa dữ liệu bị nghi vấn
+    targetSessionId?: string; // Kỳ sát hạch làm đối chứng (nếu có)
 }
 
 export interface SessionSummary {

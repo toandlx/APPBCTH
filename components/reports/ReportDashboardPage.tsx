@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, TrainingUnit, ConflictWarning } from '../../types';
 import { GeneralReport } from './GeneralReport';
@@ -115,7 +116,7 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
     const handleDownload = () => {
         switch(view) {
             case 'summary':
-                exportGeneralReportToExcel(summaryData, grandTotal, reportDate, localMetadata);
+                exportGeneralReportToExcel(summaryData, grandTotal, reportDate, localMetadata, studentRecords);
                 break;
             case 'unit-stats':
                 if (studentRecords) exportUnitStatisticsToExcel(studentRecords, trainingUnits, reportDate);
@@ -230,7 +231,7 @@ export const ReportDashboardPage: React.FC<ReportDashboardPageProps> = ({
     const renderActiveReport = () => {
         switch(view) {
             case 'summary':
-                return <GeneralReport appData={summaryData} grandTotal={grandTotal} reportDate={reportDate} reportMetadata={localMetadata} />;
+                return <GeneralReport appData={summaryData} grandTotal={grandTotal} reportDate={reportDate} reportMetadata={localMetadata} studentRecords={studentRecords} />;
             case 'unit-stats':
                 return studentRecords ? <UnitStatisticsReport students={studentRecords} trainingUnits={trainingUnits} reportDate={reportDate} /> : null;
             case 'passed':

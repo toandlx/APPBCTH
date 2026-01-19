@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import type { TrainingUnit } from '../../types';
 import { storageService } from '../../services/storageService';
@@ -18,7 +19,6 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
     const [editingUnit, setEditingUnit] = useState<TrainingUnit | null>(null);
     const [formData, setFormData] = useState({ code: '', name: '' });
 
-    // Refresh data on mount to ensure we have the latest from DB
     useEffect(() => {
         const loadUnits = async () => {
             try {
@@ -43,41 +43,75 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
                     const workbook = XLSX.read(data, { type: 'array' });
                     const sheetName = workbook.SheetNames[0];
                     const worksheet = workbook.Sheets[sheetName];
-                    const json: any[] = XLSX.utils.sheet_to_json(worksheet);
                     
+                    // Chuyển sang mảng thô (rows) để tự động tìm dòng tiêu đề
+                    const rows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    
+                    if (rows.length < 2) {
+                        setUnitUploadError("File Excel không có dữ liệu.");
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    const possibleCodeKeys = ['MADV', 'MA DV', 'MÃ ĐV', 'MA_DV', 'MA-DV', 'ID'];
+                    const possibleNameKeys = ['TENDV', 'TEN DV', 'TÊN ĐV', 'TEN_DV', 'TEN-DV', 'NAME'];
+
+                    let headerIndex = -1;
+                    let codeColIdx = -1;
+                    let nameColIdx = -1;
+
+                    // Tìm dòng tiêu đề
+                    for (let i = 0; i < Math.min(rows.length, 10); i++) {
+                        const row = rows[i];
+                        for (let j = 0; j < row.length; j++) {
+                            const val = String(row[j] || "").trim().toUpperCase().replace(/\s+/g, ' ');
+                            if (possibleCodeKeys.includes(val)) codeColIdx = j;
+                            if (possibleNameKeys.includes(val)) nameColIdx = j;
+                        }
+                        if (codeColIdx !== -1 && nameColIdx !== -1) {
+                            headerIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (headerIndex === -1) {
+                        setUnitUploadError("Không tìm thấy tiêu đề cột 'MaDv' và 'TenDV'. Vui lòng kiểm tra lại file Excel.");
+                        setIsLoading(false);
+                        return;
+                    }
+
                     const newUnits: TrainingUnit[] = [];
-                    json.forEach((row, index) => {
-                        const code = row['MaDv'] || row['MADV'] || row['MaDV'] || row['Mã ĐV'];
-                        const name = row['TenDV'] || row['TENDV'] || row['TenDv'] || row['Tên ĐV'];
+                    for (let i = headerIndex + 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        const code = String(row[codeColIdx] || "").trim();
+                        const name = String(row[nameColIdx] || "").trim();
 
                         if (code && name) {
-                            const codeStr = String(code).trim();
-                            // Generate stable ID based on code to allow updates via re-import
-                            const stableId = `unit-${codeStr}`; 
-                            
                             newUnits.push({
-                                id: stableId,
-                                code: codeStr,
-                                name: String(name).trim()
+                                id: `unit-${code}`,
+                                code: code,
+                                name: name
                             });
                         }
-                    });
+                    }
 
                     if (newUnits.length === 0) {
-                        setUnitUploadError("Không tìm thấy dữ liệu hợp lệ (Cột 'MaDv', 'TenDV')");
+                        setUnitUploadError("Không tìm thấy dữ liệu hợp lệ dưới dòng tiêu đề.");
                     } else {
-                        // Persist to Storage
-                        await storageService.importTrainingUnits(newUnits);
-                        // Refresh parent
+                        const success = await storageService.importTrainingUnits(newUnits);
                         const refreshedUnits = await storageService.getAllTrainingUnits();
                         onUnitsImport(refreshedUnits);
+                        if (success) {
+                            alert(`Đã nhập và lưu thành công ${newUnits.length} đơn vị đào tạo vào hệ thống.`);
+                        } else {
+                            alert(`Đã nhập ${newUnits.length} đơn vị vào bộ nhớ tạm. Lưu ý: Database Cloud SQL đang ngoại tuyến.`);
+                        }
                     }
                 } catch (err) {
-                    setUnitUploadError("Lỗi đọc file Excel hoặc lỗi lưu server");
+                    setUnitUploadError("Lỗi đọc file Excel hoặc lỗi lưu dữ liệu");
                     console.error("Error processing Unit Excel:", err);
                 } finally {
                     setIsLoading(false);
-                    // Reset input
                     e.target.value = '';
                 }
             };
@@ -87,9 +121,9 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
 
     const downloadUnitSample = () => {
         const sampleData = [
-            { 'MaDv': '2721', 'TenDV': 'Trung tâm Đông Đô' },
-            { 'MaDv': '2722', 'TenDV': 'Trung tâm Âu Lạc' },
-            { 'MaDv': '01', 'TenDV': 'Đơn vị khác' }
+            { 'MaDv': '24001', 'TenDV': 'Trường Trung cấp nghề số 1 Bắc giang' },
+            { 'MaDv': '24002', 'TenDV': 'Trường Trung cấp nghề GTVT Bắc Giang' },
+            { 'MaDv': '2721', 'TenDV': 'Bộ phận cấp đổi - Sở GTVT Bắc Giang' }
         ];
         const worksheet = XLSX.utils.json_to_sheet(sampleData);
         const workbook = XLSX.utils.book_new();
@@ -97,7 +131,6 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
         XLSX.writeFile(workbook, "Mau_Don_Vi_Dao_Tao.xlsx");
     };
 
-    // CRUD Handlers
     const handleAddClick = () => {
         setEditingUnit(null);
         setFormData({ code: '', name: '' });
@@ -115,7 +148,6 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
             setIsLoading(true);
             try {
                 await storageService.deleteTrainingUnit(id);
-                // Refresh
                 const refreshedUnits = await storageService.getAllTrainingUnits();
                 onUnitsImport(refreshedUnits);
             } catch (error) {
@@ -139,26 +171,22 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
             };
             
             await storageService.saveTrainingUnit(unitToSave);
-            
-            // Refresh
             const refreshedUnits = await storageService.getAllTrainingUnits();
             onUnitsImport(refreshedUnits);
-            
             setIsModalOpen(false);
         } catch (error) {
             alert('Lỗi khi lưu dữ liệu!');
-            console.error(error);
         } finally {
             setIsLoading(false);
         }
     };
 
     return (
-        <div className="p-6 md:p-10 h-full overflow-y-auto bg-gray-100">
+        <div className="p-6 md:p-10 h-full overflow-y-auto bg-gray-100 dark:bg-gray-900 transition-colors">
             <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-gray-800">Đơn vị Đào tạo</h2>
-                    <p className="text-gray-500 mt-1">Quản lý danh sách các đơn vị đào tạo lái xe.</p>
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Đơn vị Đào tạo</h2>
+                    <p className="text-gray-500 dark:text-gray-400 mt-1">Quản lý danh sách các đơn vị đào tạo để nhận diện học viên.</p>
                 </div>
                 <div className="flex gap-2">
                     <button 
@@ -169,38 +197,32 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
                     </button>
                     <button 
                         onClick={downloadUnitSample}
-                        className="px-4 py-2 bg-white border border-blue-200 text-blue-600 rounded-lg hover:bg-blue-50 shadow-sm transition-colors flex items-center gap-2 font-medium"
+                        className="px-4 py-2 bg-white dark:bg-gray-800 border dark:border-gray-700 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-gray-700 shadow-sm transition-colors flex items-center gap-2 font-medium"
                     >
                         <i className="fa-solid fa-download"></i> Tải file mẫu
                     </button>
                 </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="p-6 border-b border-gray-100 bg-gray-50">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Nhập nhanh từ Excel (Cột: MaDv, TenDV)</label>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="p-6 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Nhập nhanh từ Excel (Tiêu đề cột: MaDv, TenDV)</label>
                     <div className="flex gap-4">
                         <input 
                             type="file" 
                             accept=".xlsx, .xls"
                             onChange={handleUnitFileChange}
                             disabled={isLoading}
-                            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-teal-600 file:text-white hover:file:bg-teal-700 cursor-pointer bg-white border border-gray-300 rounded-lg disabled:opacity-50" 
+                            className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-teal-600 file:text-white hover:file:bg-teal-700 cursor-pointer bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg disabled:opacity-50" 
                         />
                     </div>
                     {unitUploadError && (
-                        <div className="mt-3 text-sm text-red-600 bg-red-50 p-2 rounded border border-red-100 flex items-center gap-2">
+                        <div className="mt-3 text-sm text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded border border-red-100 dark:border-red-800 flex items-center gap-2">
                             <i className="fa-solid fa-circle-exclamation"></i>
                             {unitUploadError}
                         </div>
                     )}
                 </div>
-
-                {isLoading && (
-                    <div className="p-4 text-center text-blue-600 bg-blue-50">
-                        <i className="fa-solid fa-spinner animate-spin mr-2"></i> Đang xử lý...
-                    </div>
-                )}
 
                 <div className="overflow-x-auto">
                     {trainingUnits.length === 0 ? (
@@ -210,8 +232,8 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
                             <p className="text-sm mt-1">Vui lòng thêm mới hoặc tải file Excel lên.</p>
                         </div>
                     ) : (
-                        <table className="w-full text-left text-sm text-gray-600">
-                            <thead className="bg-gray-100 text-gray-700 uppercase font-semibold text-xs">
+                        <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
+                            <thead className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 uppercase font-semibold text-xs">
                                 <tr>
                                     <th className="px-6 py-4 w-16 text-center">STT</th>
                                     <th className="px-6 py-4 w-48">Mã Đơn Vị</th>
@@ -219,24 +241,24 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
                                     <th className="px-6 py-4 w-32 text-center">Hành động</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-100">
+                            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                                 {trainingUnits.map((u, index) => (
-                                    <tr key={u.id} className="hover:bg-blue-50 transition-colors group">
+                                    <tr key={u.id} className="hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors group">
                                         <td className="px-6 py-4 text-center font-medium text-gray-400">{index + 1}</td>
-                                        <td className="px-6 py-4 font-bold text-blue-700 bg-blue-50/30">{u.code}</td>
-                                        <td className="px-6 py-4 font-medium text-gray-900">{u.name}</td>
+                                        <td className="px-6 py-4 font-bold text-blue-700 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20">{u.code}</td>
+                                        <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{u.name}</td>
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <button 
                                                     onClick={() => handleEditClick(u)}
-                                                    className="w-8 h-8 flex items-center justify-center text-blue-600 bg-blue-100 rounded hover:bg-blue-200"
+                                                    className="w-8 h-8 flex items-center justify-center text-blue-600 bg-blue-100 dark:bg-blue-900/40 rounded hover:bg-blue-200"
                                                     title="Sửa"
                                                 >
                                                     <i className="fa-solid fa-pen"></i>
                                                 </button>
                                                 <button 
                                                     onClick={() => handleDeleteClick(u.id)}
-                                                    className="w-8 h-8 flex items-center justify-center text-red-600 bg-red-100 rounded hover:bg-red-200"
+                                                    className="w-8 h-8 flex items-center justify-center text-red-600 bg-red-100 dark:bg-red-900/40 rounded hover:bg-red-200"
                                                     title="Xóa"
                                                 >
                                                     <i className="fa-solid fa-trash"></i>
@@ -249,20 +271,13 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
                         </table>
                     )}
                 </div>
-                
-                {trainingUnits.length > 0 && (
-                    <div className="p-4 border-t border-gray-100 bg-gray-50 text-right text-xs text-gray-500">
-                        Tổng số: <strong>{trainingUnits.length}</strong> đơn vị
-                    </div>
-                )}
             </div>
 
-            {/* Modal Add/Edit */}
             {isModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md animate-fade-in-down">
-                        <div className="p-4 border-b flex justify-between items-center">
-                            <h3 className="font-bold text-lg text-gray-800">
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-md">
+                        <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center">
+                            <h3 className="font-bold text-lg text-gray-800 dark:text-white">
                                 {editingUnit ? 'Cập nhật Đơn vị' : 'Thêm Đơn vị mới'}
                             </h3>
                             <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600">
@@ -271,43 +286,30 @@ export const TrainingUnitManager: React.FC<TrainingUnitManagerProps> = ({ traini
                         </div>
                         <form onSubmit={handleSubmit} className="p-6 space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Mã Đơn Vị (Prefix)</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mã Đơn Vị (Số/Ký tự)</label>
                                 <input 
                                     type="text" 
                                     required
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="VD: 2721"
+                                    className="w-full px-3 py-2 border dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                                    placeholder="VD: 24001"
                                     value={formData.code}
                                     onChange={(e) => setFormData({...formData, code: e.target.value})}
                                 />
-                                <p className="text-xs text-gray-500 mt-1">Dùng để nhận diện học viên qua Mã HV.</p>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Tên Đơn Vị</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tên Đơn Vị</label>
                                 <input 
                                     type="text" 
                                     required
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    placeholder="VD: Trung tâm Đông Đô"
+                                    className="w-full px-3 py-2 border dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                                    placeholder="VD: Trường nghề GTVT"
                                     value={formData.name}
                                     onChange={(e) => setFormData({...formData, name: e.target.value})}
                                 />
                             </div>
                             <div className="flex justify-end gap-3 pt-4">
-                                <button 
-                                    type="button"
-                                    onClick={() => setIsModalOpen(false)}
-                                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                                >
-                                    Hủy
-                                </button>
-                                <button 
-                                    type="submit"
-                                    disabled={isLoading}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                                >
-                                    {isLoading ? 'Đang lưu...' : 'Lưu'}
-                                </button>
+                                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 dark:text-gray-400 font-medium">Hủy</button>
+                                <button type="submit" disabled={isLoading} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold">Lưu</button>
                             </div>
                         </form>
                     </div>
