@@ -17,23 +17,28 @@ interface StudentProfile {
     otherIdsWithSameCCCD: string[];
 }
 
-// Helper để lấy giá trị cột bất kể hoa thường hoặc phím tắt (xử lý dữ liệu cũ)
+interface StudentLookupPageProps {
+    sessions: SavedSession[];
+    isLoading: boolean;
+    onRefresh: () => void;
+}
+
+// Cải tiến hàm lấy giá trị cột: Nhạy bén hơn với các biến thể của tiêu đề cột
 const getStudentVal = (s: any, keys: string[]) => {
-    for (const k of keys) {
-        if (s[k] !== undefined) return String(s[k]).trim();
-    }
-    // Fallback: tìm key tương tự trong object
-    const upperKeys = Object.keys(s).map(k => k.toUpperCase());
+    if (!s) return '';
+    const objKeys = Object.keys(s);
+    
+    // Ưu tiên khớp chính xác hoặc khớp hoa/thường
     for (const targetKey of keys) {
-        const idx = upperKeys.indexOf(targetKey.toUpperCase());
-        if (idx !== -1) return String(s[Object.keys(s)[idx]]).trim();
+        const foundKey = objKeys.find(k => k.trim().toUpperCase() === targetKey.toUpperCase());
+        if (foundKey && s[foundKey] !== undefined && s[foundKey] !== null) {
+            return String(s[foundKey]).trim();
+        }
     }
     return '';
 };
 
-export const StudentLookupPage: React.FC = () => {
-    const [sessions, setSessions] = useState<SavedSession[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
+export const StudentLookupPage: React.FC<StudentLookupPageProps> = ({ sessions, isLoading, onRefresh }) => {
     const [selectedStudent, setSelectedStudent] = useState<StudentProfile | null>(null);
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -42,25 +47,11 @@ export const StudentLookupPage: React.FC = () => {
     const [selectedClass, setSelectedClass] = useState('all');
     const [selectedStatus, setSelectedStatus] = useState<'all' | 'passed' | 'failed' | 'absent'>('all');
 
-    const loadData = async () => {
-        setIsLoading(true);
-        try {
-            const data = await storageService.getAllSessions();
-            setSessions(data || []);
-        } catch (error) {
-            console.error("Failed to load sessions", error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    useEffect(() => { loadData(); }, []);
-
     const uniqueClasses = useMemo(() => {
         const classes = new Set<string>();
         sessions.forEach(session => {
             session.studentRecords?.forEach(s => {
-                const cls = getStudentVal(s, ['HẠNG GPLX', 'HẠNG', 'HANG']);
+                const cls = getStudentVal(s, ['HẠNG GPLX', 'HẠNG', 'HANG', 'HANG XE']);
                 if (cls) classes.add(cls);
             });
         });
@@ -74,14 +65,14 @@ export const StudentLookupPage: React.FC = () => {
         const cccdToIdsMap = new Map<string, Set<string>>();
         
         const term = searchTerm.toLowerCase().trim();
-        const fromDate = dateFrom ? new Date(dateFrom).getTime() : 0;
-        const toDate = dateTo ? new Date(dateTo).getTime() + 86399999 : Infinity;
+        const fromDateStr = dateFrom ? new Date(dateFrom).getTime() : 0;
+        const toDateStr = dateTo ? new Date(dateTo).getTime() + 86399999 : Infinity;
 
-        // BƯỚC 1: Xây dựng bản đồ quan hệ CCCD -> Mã HV
+        // BƯỚC 1: Bản đồ CCCD -> Danh sách các Mã HV khác nhau
         sessions.forEach(session => {
             session.studentRecords?.forEach(student => {
-                const sid = getStudentVal(student, ['MÃ HỌC VIÊN', 'MAHV', 'MADK']);
-                const cccd = getStudentVal(student, ['SỐ CHỨNG MINH', 'CCCD', 'CMND']);
+                const sid = getStudentVal(student, ['MÃ HỌC VIÊN', 'MAHV', 'MADK', 'MÃ ĐK']);
+                const cccd = getStudentVal(student, ['SỐ CHỨNG MINH', 'CCCD', 'CMND', 'SỐ THẺ']);
                 if (cccd && sid) {
                     if (!cccdToIdsMap.has(cccd)) cccdToIdsMap.set(cccd, new Set());
                     cccdToIdsMap.get(cccd)!.add(sid);
@@ -89,13 +80,13 @@ export const StudentLookupPage: React.FC = () => {
             });
         });
 
-        // BƯỚC 2: Gom nhóm và lọc
+        // BƯỚC 2: Xử lý tìm kiếm và gom nhóm theo Mã Học Viên
         sessions.forEach(session => {
             const sessionTime = new Date(session.reportDate).getTime();
-            if (sessionTime < fromDate || sessionTime > toDate) return;
+            if (sessionTime < fromDateStr || sessionTime > toDateStr) return;
 
             session.studentRecords?.forEach(student => {
-                const sid = getStudentVal(student, ['MÃ HỌC VIÊN', 'MAHV', 'MADK']);
+                const sid = getStudentVal(student, ['MÃ HỌC VIÊN', 'MAHV', 'MADK', 'MÃ ĐK']);
                 if (!sid) return;
 
                 const sClass = getStudentVal(student, ['HẠNG GPLX', 'HẠNG', 'HANG']);
@@ -107,21 +98,20 @@ export const StudentLookupPage: React.FC = () => {
                 if (selectedStatus === 'absent' && !isAbs) return;
                 if (selectedStatus === 'failed' && (isPass || isAbs)) return;
 
-                if (term) {
-                    const name = getStudentVal(student, ['HỌ VÀ TÊN', 'HOTEN', 'TEN']).toLowerCase();
-                    const cccd = getStudentVal(student, ['SỐ CHỨNG MINH', 'CCCD', 'CMND']).toLowerCase();
-                    const sbd = getStudentVal(student, ['SỐ BÁO DANH', 'SBD']).toLowerCase();
-                    if (!name.includes(term) && !sid.toLowerCase().includes(term) && !cccd.includes(term) && !sbd.includes(term)) return;
-                }
+                const name = getStudentVal(student, ['HỌ VÀ TÊN', 'HOTEN', 'TEN', 'HỌ TÊN']).toLowerCase();
+                const cccd = getStudentVal(student, ['SỐ CHỨNG MINH', 'CCCD', 'CMND']).toLowerCase();
+                const sbd = getStudentVal(student, ['SỐ BÁO DANH', 'SBD']).toLowerCase();
+
+                if (term && !name.includes(term) && !sid.toLowerCase().includes(term) && !cccd.includes(term) && !sbd.includes(term)) return;
 
                 if (!studentMap.has(sid)) {
-                    const cccd = getStudentVal(student, ['SỐ CHỨNG MINH', 'CCCD', 'CMND']);
-                    const otherIds = Array.from(cccdToIdsMap.get(cccd) || []).filter(id => id !== sid);
+                    const studentCccd = getStudentVal(student, ['SỐ CHỨNG MINH', 'CCCD', 'CMND']);
+                    const otherIds = Array.from(cccdToIdsMap.get(studentCccd) || []).filter(id => id !== sid);
 
                     studentMap.set(sid, {
                         studentId: sid,
-                        studentName: getStudentVal(student, ['HỌ VÀ TÊN', 'TEN']),
-                        cccd: cccd,
+                        studentName: getStudentVal(student, ['HỌ VÀ TÊN', 'HỌ TÊN', 'TEN']),
+                        cccd: studentCccd,
                         licenseClass: sClass,
                         attempts: [],
                         otherIdsWithSameCCCD: otherIds
@@ -137,16 +127,26 @@ export const StudentLookupPage: React.FC = () => {
         });
 
         const list = Array.from(studentMap.values());
-        list.forEach(s => s.attempts.sort((a, b) => new Date(b.reportDate).getTime() - new Date(a.reportDate).getTime()));
-        return list.sort((a, b) => new Date(b.attempts[0].reportDate).getTime() - new Date(a.attempts[0].reportDate).getTime());
+        
+        // Sắp xếp các lần thi theo ngày mới nhất
+        list.forEach(s => {
+            s.attempts.sort((a, b) => new Date(b.reportDate).getTime() - new Date(a.reportDate).getTime());
+        });
+
+        // Sắp xếp danh sách thí sinh theo lần thi cuối cùng
+        return list.sort((a, b) => {
+            const dateA = a.attempts[0] ? new Date(a.attempts[0].reportDate).getTime() : 0;
+            const dateB = b.attempts[0] ? new Date(b.attempts[0].reportDate).getTime() : 0;
+            return dateB - dateA;
+        });
     }, [sessions, searchTerm, dateFrom, dateTo, selectedClass, selectedStatus]);
 
     const getScoreColor = (score: any) => {
         if (!score) return 'text-gray-300';
         const s = String(score).trim().toUpperCase();
-        if (s === 'ĐẠT' || s === 'P') return 'text-green-600 font-bold';
-        if (s === 'KHÔNG ĐẠT' || s === 'TRƯỢT' || s === 'F') return 'text-red-600 font-bold';
-        return 'text-gray-800 font-medium';
+        if (s === 'ĐẠT' || s === 'P' || s === 'PASSED') return 'text-green-600 font-bold';
+        if (s === 'KHÔNG ĐẠT' || s === 'TRƯỢT' || s === 'F' || s === 'FAILED') return 'text-red-600 font-bold';
+        return 'text-gray-800 dark:text-gray-200 font-medium';
     };
 
     return (
@@ -156,8 +156,8 @@ export const StudentLookupPage: React.FC = () => {
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Tra cứu Hồ sơ Thí sinh</h2>
                     <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">Quản lý lịch sử thi theo Mã học viên và đối soát trùng lặp CCCD.</p>
                 </div>
-                <button onClick={loadData} className="px-4 py-2 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors">
-                    <i className={`fa-solid fa-rotate ${isLoading ? 'animate-spin' : ''}`}></i> Làm mới
+                <button onClick={onRefresh} className="px-4 py-2 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm">
+                    <i className={`fa-solid fa-rotate ${isLoading ? 'animate-spin' : ''}`}></i> {isLoading ? 'Đang tải...' : 'Làm mới'}
                 </button>
             </div>
 
@@ -167,8 +167,8 @@ export const StudentLookupPage: React.FC = () => {
                         <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                         <input 
                             type="text" 
-                            className="w-full pl-11 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:bg-gray-700 dark:text-white"
-                            placeholder="Nhập Mã học viên, Tên hoặc CCCD..."
+                            className="w-full pl-11 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:bg-gray-700 dark:text-white shadow-inner"
+                            placeholder="Tìm kiếm: Tên, Mã HV, CCCD hoặc SBD..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -181,12 +181,12 @@ export const StudentLookupPage: React.FC = () => {
                         <span className="text-gray-400">→</span>
                         <input type="date" className="w-full bg-transparent border-none text-xs p-2 text-gray-600 dark:text-gray-300" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                     </div>
-                    <select className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white outline-none" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}>
-                        <option value="all">Tất cả Hạng</option>
+                    <select className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white outline-none cursor-pointer" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}>
+                        <option value="all">Tất cả Hạng GPLX</option>
                         {uniqueClasses.map(cls => <option key={cls} value={cls}>Hạng {cls}</option>)}
                     </select>
-                    <select className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white outline-none" value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value as any)}>
-                        <option value="all">Kết quả sau cùng</option>
+                    <select className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white outline-none cursor-pointer" value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value as any)}>
+                        <option value="all">Mọi trạng thái Đạt/Trượt</option>
                         <option value="passed">Đạt sát hạch</option>
                         <option value="failed">Trượt sát hạch</option>
                         <option value="absent">Vắng thi</option>
@@ -195,11 +195,16 @@ export const StudentLookupPage: React.FC = () => {
             </div>
 
             {isLoading ? (
-                <div className="text-center py-20"><i className="fa-solid fa-spinner animate-spin text-3xl text-blue-500"></i></div>
+                <div className="text-center py-24 flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-gray-500 font-medium">Đang truy vấn database...</p>
+                </div>
             ) : searchResults.length === 0 ? (
-                <div className="text-center py-20 bg-white dark:bg-gray-800 rounded-xl border border-dashed dark:border-gray-700">
-                    <i className="fa-solid fa-user-slash text-4xl text-gray-300 mb-3"></i>
-                    <p className="text-gray-500">Không tìm thấy thí sinh nào khớp với điều kiện lọc.</p>
+                <div className="text-center py-20 bg-white dark:bg-gray-800 rounded-xl border border-dashed border-gray-300 dark:border-gray-700">
+                    <div className="w-20 h-20 bg-gray-100 dark:bg-gray-750 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i className="fa-solid fa-user-slash text-4xl text-gray-300"></i>
+                    </div>
+                    <p className="text-gray-500 font-medium">Không tìm thấy thí sinh nào khớp với điều kiện lọc.</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -208,55 +213,55 @@ export const StudentLookupPage: React.FC = () => {
                         const hasConflict = profile.otherIdsWithSameCCCD.length > 0;
                         
                         return (
-                            <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:border-blue-300 dark:hover:border-blue-500 transition-all group relative overflow-hidden">
+                            <div key={index} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 hover:border-blue-400 dark:hover:border-blue-500 transition-all group relative overflow-hidden">
                                 {hasConflict && (
-                                    <div className="absolute top-0 right-0 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg shadow-sm z-10">
-                                        ⚠️ TRÙNG CCCD
+                                    <div className="absolute top-0 right-0 bg-orange-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg shadow-sm z-10 flex items-center gap-1">
+                                        <i className="fa-solid fa-triangle-exclamation"></i> TRÙNG CCCD
                                     </div>
                                 )}
                                 
                                 <div className="flex justify-between items-start mb-4">
                                     <div className="flex-1">
                                         <div className="flex items-center gap-2">
-                                            <h3 className="text-lg font-bold text-gray-800 dark:text-white group-hover:text-blue-600 transition-colors">{profile.studentName}</h3>
-                                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 rounded uppercase">Hạng {profile.licenseClass}</span>
+                                            <h3 className="text-lg font-bold text-gray-800 dark:text-white group-hover:text-blue-600 transition-colors uppercase">{profile.studentName}</h3>
+                                            <span className="text-[10px] font-black px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded border border-blue-200 dark:border-blue-800">Hạng {profile.licenseClass}</span>
                                         </div>
                                         <div className="text-sm text-gray-500 flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">
-                                            <span className="font-mono bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded text-xs border border-blue-100 dark:border-blue-800">
-                                                Mã: <span className="font-bold">{profile.studentId}</span>
+                                            <span className="font-mono text-gray-600 dark:text-gray-400 text-xs flex items-center gap-1">
+                                                <i className="fa-solid fa-id-card-clip"></i> ID: <span className="font-bold">{profile.studentId}</span>
                                             </span>
                                             {profile.cccd && (
-                                                <span className="font-mono text-gray-500 dark:text-gray-400 text-xs">
-                                                    CCCD: {profile.cccd}
+                                                <span className="font-mono text-gray-500 dark:text-gray-400 text-xs flex items-center gap-1">
+                                                    <i className="fa-solid fa-fingerprint"></i> CCCD: {profile.cccd}
                                                 </span>
                                             )}
                                         </div>
                                     </div>
                                     <div className="text-right ml-4">
-                                        <div className="px-3 py-1 bg-blue-600 text-white rounded-full text-[10px] font-bold shadow-sm">
-                                            {profile.attempts.length} Lượt thi
+                                        <div className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-[10px] font-bold border dark:border-gray-600">
+                                            {profile.attempts.length} Lần sát hạch
                                         </div>
                                     </div>
                                 </div>
                                 
-                                <div className="bg-gray-50 dark:bg-gray-750 rounded-lg p-3 mb-4 grid grid-cols-4 gap-2 text-center text-xs">
-                                    <div className="border-r dark:border-gray-700"><div className="text-gray-400 font-bold mb-1 uppercase text-[10px]">Lý thuyết</div><div className={getScoreColor(getStudentVal(latest, ['LÝ THUYẾT', 'LT']))}>{getStudentVal(latest, ['LÝ THUYẾT', 'LT']) || '-'}</div></div>
-                                    <div className="border-r dark:border-gray-700"><div className="text-gray-400 font-bold mb-1 uppercase text-[10px]">Mô phỏng</div><div className={getScoreColor(getStudentVal(latest, ['MÔ PHỎNG', 'MP']))}>{getStudentVal(latest, ['MÔ PHỎNG', 'MP']) || '-'}</div></div>
-                                    <div className="border-r dark:border-gray-700"><div className="text-gray-400 font-bold mb-1 uppercase text-[10px]">Sa hình</div><div className={getScoreColor(getStudentVal(latest, ['SA HÌNH', 'SH']))}>{getStudentVal(latest, ['SA HÌNH', 'SH']) || '-'}</div></div>
-                                    <div><div className="text-gray-400 font-bold mb-1 uppercase text-[10px]">Đ.Trường</div><div className={getScoreColor(getStudentVal(latest, ['ĐƯỜNG TRƯỜNG', 'DT', 'ĐT']))}>{getStudentVal(latest, ['ĐƯỜNG TRƯỜNG', 'DT', 'ĐT']) || '-'}</div></div>
+                                <div className="bg-gray-50 dark:bg-gray-750 rounded-lg p-3 mb-4 grid grid-cols-4 gap-2 text-center text-[11px] border dark:border-gray-700">
+                                    <div className="border-r dark:border-gray-700"><div className="text-gray-400 font-bold mb-1 uppercase text-[9px]">Lý thuyết</div><div className={getScoreColor(getStudentVal(latest, ['LÝ THUYẾT', 'LT']))}>{getStudentVal(latest, ['LÝ THUYẾT', 'LT']) || '-'}</div></div>
+                                    <div className="border-r dark:border-gray-700"><div className="text-gray-400 font-bold mb-1 uppercase text-[9px]">Mô phỏng</div><div className={getScoreColor(getStudentVal(latest, ['MÔ PHỎNG', 'MP']))}>{getStudentVal(latest, ['MÔ PHỎNG', 'MP']) || '-'}</div></div>
+                                    <div className="border-r dark:border-gray-700"><div className="text-gray-400 font-bold mb-1 uppercase text-[9px]">Sa hình</div><div className={getScoreColor(getStudentVal(latest, ['SA HÌNH', 'SH']))}>{getStudentVal(latest, ['SA HÌNH', 'SH']) || '-'}</div></div>
+                                    <div><div className="text-gray-400 font-bold mb-1 uppercase text-[9px]">Đ.Trường</div><div className={getScoreColor(getStudentVal(latest, ['ĐƯỜNG TRƯỜNG', 'DT', 'ĐT']))}>{getStudentVal(latest, ['ĐƯỜNG TRƯỜNG', 'DT', 'ĐT']) || '-'}</div></div>
                                 </div>
 
                                 <button 
                                     onClick={() => setSelectedStudent(profile)}
-                                    className="w-full py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white dark:hover:bg-blue-600 dark:hover:text-white rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 border border-blue-100 dark:border-blue-800"
+                                    className="w-full py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-sm"
                                 >
-                                    <i className="fa-solid fa-clock-rotate-left"></i> Xem lịch sử thi mã này
+                                    <i className="fa-solid fa-clock-rotate-left"></i> Xem chi tiết lịch sử thi
                                 </button>
                                 
                                 {hasConflict && (
                                     <div className="mt-3 p-2 bg-orange-50 dark:bg-orange-900/20 rounded-md border border-orange-100 dark:border-orange-800 text-[10px] text-orange-700 dark:text-orange-400 flex items-start gap-2">
-                                        <i className="fa-solid fa-triangle-exclamation mt-0.5"></i>
-                                        <span>CCCD này còn gắn với các mã khác: <span className="font-bold">{profile.otherIdsWithSameCCCD.join(', ')}</span>.</span>
+                                        <i className="fa-solid fa-circle-info mt-0.5"></i>
+                                        <span>Cảnh báo: CCCD này xuất hiện với {profile.otherIdsWithSameCCCD.length} Mã HV khác: <span className="font-bold">{profile.otherIdsWithSameCCCD.join(', ')}</span>.</span>
                                     </div>
                                 )}
                             </div>
@@ -265,15 +270,14 @@ export const StudentLookupPage: React.FC = () => {
                 </div>
             )}
 
-            {/* Modal Chi tiết */}
             {selectedStudent && (
-                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-slide-up">
+                <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedStudent(null)}>
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
                         <header className="p-6 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-750">
                             <div>
-                                <h2 className="text-xl font-bold text-gray-900 dark:text-white">{selectedStudent.studentName}</h2>
+                                <h2 className="text-xl font-bold text-gray-900 dark:text-white uppercase">{selectedStudent.studentName}</h2>
                                 <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-gray-500">
-                                    <span className="font-bold text-blue-600 dark:text-blue-400">Mã: {selectedStudent.studentId}</span>
+                                    <span className="font-bold text-blue-600 dark:text-blue-400">ID: {selectedStudent.studentId}</span>
                                     <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
                                     <span>CCCD: {selectedStudent.cccd || '---'}</span>
                                     <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
@@ -344,7 +348,7 @@ export const StudentLookupPage: React.FC = () => {
                         </div>
                         
                         <footer className="p-4 bg-gray-50 dark:bg-gray-750 border-t dark:border-gray-700 text-center">
-                            <button onClick={() => setSelectedStudent(null)} className="px-12 py-2.5 bg-gray-800 dark:bg-gray-700 text-white rounded-xl font-bold hover:bg-gray-900 transition-all shadow-md">Đóng chi tiết</button>
+                            <button onClick={() => setSelectedStudent(null)} className="px-12 py-3 bg-gray-800 dark:bg-gray-700 text-white rounded-xl font-bold hover:bg-gray-900 transition-all shadow-md">Đóng bảng lịch sử</button>
                         </footer>
                     </div>
                 </div>

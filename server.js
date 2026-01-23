@@ -4,8 +4,8 @@ const cors = require('cors');
 const path = require('path');
 const { Pool } = require('pg');
 
-const SERVER_VERSION = '4.0.5';
-console.log(`\n\n[APPBCTH] Starting Server v${SERVER_VERSION}`);
+const SERVER_VERSION = '4.1.1';
+console.log(`\n\n[APPBCTH] Starting Server v${SERVER_VERSION} - Cloud SQL Optimized`);
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -26,56 +26,81 @@ const connectWithRetry = async (retries = 5) => {
         user: DB_USER,
         password: DB_PASS,
         database: DB_NAME,
-        max: 20,
+        max: 25,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 10000,
+        connectionTimeoutMillis: 15000,
     };
 
     if (INSTANCE_NAME) {
         config.host = `/cloudsql/${INSTANCE_NAME}`;
+        console.log(`[DB] Configuring Cloud SQL socket connection: ${INSTANCE_NAME}`);
     } else {
         config.host = DB_HOST;
         config.port = parseInt(DB_PORT, 10);
+        console.log(`[DB] Configuring TCP connection to ${DB_HOST}:${DB_PORT}`);
     }
 
     try {
-        if (pool) {
-            await pool.end().catch(() => {});
-        }
+        if (pool) await pool.end().catch(() => {});
         pool = new Pool(config);
         const client = await pool.connect();
         await client.query('SELECT NOW()');
         client.release();
         isDbConnected = true;
         lastDbError = null;
-        console.log("✅ [DB] Connected.");
+        console.log("✅ [DB] Successfully connected to Cloud SQL.");
         await ensureSchema();
     } catch (err) {
         isDbConnected = false;
         lastDbError = err.message;
-        console.error("❌ [DB] Connection Error:", err.message);
-        if (retries > 0) setTimeout(() => connectWithRetry(retries - 1), 5000);
+        console.error("❌ [DB] Connection Failed:", err.message);
+        if (retries > 0) {
+            console.log(`[DB] Retrying in 5s... (${retries} attempts left)`);
+            setTimeout(() => connectWithRetry(retries - 1), 5000);
+        }
     }
 };
 
 const ensureSchema = async () => {
     if (!pool) return;
     const queries = [
-        `CREATE TABLE IF NOT EXISTS sessions (id VARCHAR(255) PRIMARY KEY, data JSONB NOT NULL, report_date TIMESTAMPTZ, created_at BIGINT);`,
-        `CREATE TABLE IF NOT EXISTS training_units (id VARCHAR(255) PRIMARY KEY, code VARCHAR(50) NOT NULL, name VARCHAR(255) NOT NULL, created_at BIGINT);`
+        `CREATE TABLE IF NOT EXISTS sessions (
+            id VARCHAR(255) PRIMARY KEY, 
+            data JSONB NOT NULL, 
+            report_date TIMESTAMPTZ, 
+            created_at BIGINT
+        );`,
+        `CREATE TABLE IF NOT EXISTS training_units (
+            id VARCHAR(255) PRIMARY KEY, 
+            code VARCHAR(50) NOT NULL, 
+            name VARCHAR(255) NOT NULL, 
+            created_at BIGINT
+        );`
     ];
     try {
         for (let q of queries) await pool.query(q);
-    } catch (err) { console.error("❌ [DB] Schema Error:", err.message); }
+        console.log("✅ [DB] Schema verified.");
+    } catch (err) { 
+        console.error("❌ [DB] Schema Setup Error:", err.message); 
+    }
 };
 
 connectWithRetry();
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '60mb' }));
+
+// MỚI: API lấy toàn bộ dữ liệu chi tiết của các session
+app.get('/api/sessions', async (req, res) => {
+    if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
+    try {
+        const result = await pool.query('SELECT data FROM sessions ORDER BY created_at DESC');
+        res.json(result.rows.map(row => row.data));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 app.get('/api/sessions/summary', async (req, res) => {
-    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
+    if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
     try {
         const result = await pool.query(`
             SELECT id, data->>'name' as name, report_date as "reportDate", created_at as "createdAt",
@@ -85,25 +110,8 @@ app.get('/api/sessions/summary', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/sessions', async (req, res) => {
-    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
-    try {
-        const result = await pool.query('SELECT data FROM sessions ORDER BY created_at DESC');
-        res.json(result.rows.map(r => r.data));
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/sessions/:id', async (req, res) => {
-    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
-    try {
-        const result = await pool.query('SELECT data FROM sessions WHERE id = $1', [req.params.id]);
-        if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
-        res.json(result.rows[0].data);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 app.post('/api/sessions', async (req, res) => {
-    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
+    if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
     const s = req.body;
     try {
         await pool.query(
@@ -115,73 +123,38 @@ app.post('/api/sessions', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/sessions/:id', async (req, res) => {
-    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
+app.get('/api/sessions/:id', async (req, res) => {
+    if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
     try {
-        await pool.query('DELETE FROM sessions WHERE id = $1', [req.params.id]);
-        res.json({ success: true });
+        const result = await pool.query('SELECT data FROM sessions WHERE id = $1', [req.params.id]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+        res.json(result.rows[0].data);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/training-units', async (req, res) => {
-    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
+    if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
     try {
         const result = await pool.query('SELECT * FROM training_units ORDER BY created_at ASC');
         res.json(result.rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/training-units', async (req, res) => {
-    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
-    const u = req.body;
-    try {
-        await pool.query(
-            `INSERT INTO training_units (id, code, name, created_at) VALUES ($1, $2, $3, $4)
-             ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name`,
-            [u.id, u.code, u.name, u.created_at || Date.now()]
-        );
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// Endpoint nhập hàng loạt
-app.post('/api/training-units/bulk', async (req, res) => {
-    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
-    const units = req.body;
-    if (!Array.isArray(units)) return res.status(400).json({ error: "Invalid data" });
-    
-    try {
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
-            for (const u of units) {
-                await client.query(
-                    `INSERT INTO training_units (id, code, name, created_at) VALUES ($1, $2, $3, $4)
-                     ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name`,
-                    [u.id, u.code, u.name, u.created_at || Date.now()]
-                );
-            }
-            await client.query('COMMIT');
-            res.json({ success: true, count: units.length });
-        } catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-        } finally {
-            client.release();
-        }
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/training-units/:id', async (req, res) => {
-    if (!isDbConnected) return res.status(503).json({ error: "DB Offline" });
-    try {
-        await pool.query('DELETE FROM training_units WHERE id = $1', [req.params.id]);
-        res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 app.get('/api/server-status', (req, res) => {
-    res.json({ success: true, version: SERVER_VERSION, dbConnected: isDbConnected, dbError: lastDbError });
+    res.json({ 
+        success: true, 
+        version: SERVER_VERSION, 
+        dbConnected: isDbConnected, 
+        dbError: lastDbError,
+        environment: INSTANCE_NAME ? 'Cloud' : 'Local'
+    });
+});
+
+app.delete('/api/sessions/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM sessions WHERE id = $1', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 const distPath = path.join(__dirname, 'dist');
@@ -189,5 +162,5 @@ app.use(express.static(distPath));
 app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
 
 app.listen(port, '0.0.0.0', () => {
-    console.log(`🚀 [APPBCTH] Online on ${port}`);
+    console.log(`🚀 [APPBCTH] Server v${SERVER_VERSION} online on port ${port}`);
 });

@@ -20,7 +20,7 @@ type AppView = 'dashboard' | 'create' | 'detail' | 'settings' | 'training-units'
 const App: React.FC = () => {
     const [currentView, setCurrentView] = useState<AppView>('dashboard');
     const [savedSummaries, setSavedSummaries] = useState<SessionSummary[]>([]);
-    const [allSessions, setAllSessions] = useState<SavedSession[]>([]); // Lưu cache toàn bộ phiên cho các page cần thiết
+    const [allSessions, setAllSessions] = useState<SavedSession[]>([]);
     const [appData, setAppData] = useState<AppData | null>(null);
     const [studentRecords, setStudentRecords] = useState<StudentRecord[] | null>(null);
     const [selectedSession, setSelectedSession] = useState<SavedSession | null>(null);
@@ -68,7 +68,7 @@ const App: React.FC = () => {
             setAllSessions(sessions || []);
         } catch (err) {
             console.error("Load Data Error:", err);
-            showToast('Không thể tải danh sách kỳ sát hạch', 'error');
+            showToast('Không thể tải dữ liệu từ Cloud SQL', 'error');
         } finally {
             setIsListLoading(false);
         }
@@ -230,7 +230,7 @@ const App: React.FC = () => {
                     }
                 }} />}
                 {currentView === 'aggregate-report' && <AggregateReportPage />}
-                {currentView === 'student-lookup' && <StudentLookupPage />}
+                {currentView === 'student-lookup' && <StudentLookupPage sessions={allSessions} isLoading={isListLoading} onRefresh={loadData} />}
                 {currentView === 'conflict-audit' && <ConflictAuditPage sessions={allSessions} />}
                 {currentView === 'training-units' && <TrainingUnitManager trainingUnits={trainingUnits} onUnitsImport={units => { setTrainingUnits(units); loadData(); }} />}
                 {currentView === 'settings' && <SettingsPage onRefresh={() => loadData()} />}
