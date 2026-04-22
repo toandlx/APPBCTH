@@ -7,12 +7,13 @@ const normalizeIdForMatch = (id: string | number | undefined): string => {
     return String(id).trim().toUpperCase().replace(/^0+/, '');
 };
 
-export const getResultStatus = (result: string | number | undefined | null): { participated: boolean, passed: boolean } => {
-    if (result === undefined || result === null) return { participated: false, passed: false };
+export const getResultStatus = (result: string | number | undefined | null): { participated: boolean, passed: boolean, absent: boolean } => {
+    if (result === undefined || result === null) return { participated: false, passed: false, absent: false };
     const normalized = result.toString().trim().toUpperCase();
-    if (normalized === '' || normalized === 'VẮNG' || normalized === 'V') return { participated: false, passed: false };
-    const isPassed = normalized === 'ĐẠT' || normalized === 'PASSED' || normalized === 'P' || normalized === '1' || normalized === 'CHẠM';
-    return { participated: true, passed: isPassed };
+    if (normalized === '') return { participated: false, passed: false, absent: false };
+    if (normalized === 'VẮNG' || normalized === 'VANG' || normalized === 'V') return { participated: false, passed: false, absent: true };
+    const isPassed = normalized === 'ĐẠT' || normalized === 'DAT' || normalized === 'PASSED' || normalized === 'P' || normalized === '1' || normalized === 'CHẠM';
+    return { participated: true, passed: isPassed, absent: false };
 };
 
 export const isStudentAbsent = (record: StudentRecord): boolean => {
@@ -23,19 +24,71 @@ export const isStudentAbsent = (record: StudentRecord): boolean => {
     return !theory.participated && !simulation.participated && !practical.participated && !onRoad.participated;
 };
 
+export const parseNoiDungThi = (raw: string | undefined | null): string => {
+    const str = String(raw || '').toUpperCase().replace(/Đ/g, 'D');
+    let parsed = '';
+    
+    const hasTheory = str.includes('LÝ THUYẾT') || str.includes('LY THUYET') || str.match(/\bLT\b/);
+    const hasSim = str.includes('MÔ PHỎNG') || str.includes('MO PHONG') || str.match(/\bMP\b/);
+    const hasPrac = str.includes('SA HÌNH') || str.includes('SA HINH') || str.match(/\bSH\b/) || str.includes('THỰC HÀNH') || str.includes('THUC HANH') || str.includes('TRONG HÌNH');
+    const hasRoad = str.includes('DƯỜNG TRƯỜNG') || str.includes('DUONG TRUONG') || str.match(/\bDT\b/);
+
+    if (hasTheory) parsed += 'L';
+    if (hasSim) parsed += 'M';
+    if (hasPrac) parsed += 'H';
+    if (hasRoad) parsed += 'D';
+
+    if (parsed.length > 0) return parsed;
+
+    // Check if the string is just a combination of L, M, H, D (e.g., "L+M+H+D", "L, M", "LMHD")
+    // Remove all non-alphabet characters to check
+    const lettersOnly = str.replace(/[^A-Z]/g, '');
+    if (lettersOnly.length > 0 && /^[LMHD]+$/.test(lettersOnly)) {
+        if (lettersOnly.includes('L')) parsed += 'L';
+        if (lettersOnly.includes('M')) parsed += 'M';
+        if (lettersOnly.includes('H')) parsed += 'H';
+        if (lettersOnly.includes('D')) parsed += 'D';
+        return parsed;
+    }
+
+    return parsed;
+};
+
 export const isStudentPassed = (record: StudentRecord): boolean => {
     if (isStudentAbsent(record)) return false;
     
-    let noiDungThi = (record['NỘI DUNG THI'] || '').toString().trim().toUpperCase();
-    noiDungThi = noiDungThi.replace(/Đ/g, 'D');
+    // Check explicit KẾT QUẢ column first if it exists
+    const finalResultStr = record['KẾT QUẢ']?.toString().trim().toUpperCase();
+    if (finalResultStr === 'ĐẠT' || finalResultStr === 'DAT' || finalResultStr === 'PASSED') return true;
+    if (finalResultStr === 'TRƯỢT' || finalResultStr === 'TRUOT' || finalResultStr === 'HỎNG' || finalResultStr === 'FAILED') return false;
 
-    if (noiDungThi.length === 0) return false;
+    const theory = getResultStatus(record['LÝ THUYẾT']);
+    const simulation = getResultStatus(record['MÔ PHỎNG']);
+    const practical = getResultStatus(record['SA HÌNH']);
+    const onRoad = getResultStatus(record['ĐƯỜNG TRƯỜNG']);
 
+    const noiDungThi = parseNoiDungThi(record['NỘI DUNG THI'] as string);
+
+    if (noiDungThi.length === 0) {
+        // Nếu không có cột NDTHI, kiểm tra xem tất cả những môn có tham gia thi đều phải Đạt
+        if (theory.participated && !theory.passed) return false;
+        if (simulation.participated && !simulation.passed) return false;
+        if (practical.participated && !practical.passed) return false;
+        if (onRoad.participated && !onRoad.passed) return false;
+        
+        // Nếu vắng ở bất kỳ môn nào, thì trượt
+        if (theory.absent || simulation.absent || practical.absent || onRoad.absent) return false;
+
+        // Phải tham gia ít nhất 1 môn và đạt môn đó
+        return theory.participated || simulation.participated || practical.participated || onRoad.participated;
+    }
+
+    // Yêu cầu học viên phải có kết quả "ĐẠT" ở TẤT CẢ các môn được liệt kê trong cột NỘI DUNG THI
     const requiredTestsPassed =
-        (!noiDungThi.includes('L') || getResultStatus(record['LÝ THUYẾT']).passed) &&
-        (!noiDungThi.includes('M') || getResultStatus(record['MÔ PHỎNG']).passed) &&
-        (!noiDungThi.includes('H') || getResultStatus(record['SA HÌNH']).passed) &&
-        (!noiDungThi.includes('D') || getResultStatus(record['ĐƯỜNG TRƯỜNG']).passed);
+        (!noiDungThi.includes('L') || theory.passed) &&
+        (!noiDungThi.includes('M') || simulation.passed) &&
+        (!noiDungThi.includes('H') || practical.passed) &&
+        (!noiDungThi.includes('D') || onRoad.passed);
     
     return requiredTestsPassed;
 };

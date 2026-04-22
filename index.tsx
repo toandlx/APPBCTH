@@ -1,5 +1,5 @@
 
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 
@@ -11,13 +11,17 @@ interface State {
     error: Error | null; 
 }
 
-// FIX: Explicitly extending React.Component ensures the TypeScript compiler correctly identifies the inherited 'props' and 'state' properties from the React base class, resolving issues where member properties are not found.
+// FIX: Explicitly extending React.Component and declaring properties ensures that the TypeScript compiler identifies 'props' and 'state' correctly, resolving common environment-specific inheritance issues.
 class ErrorBoundary extends React.Component<Props, State> {
-    // FIX: Initializing state as a class property ensures it matches the 'State' interface and is compatible with React's internal state management.
-    public state: State = { hasError: false, error: null };
+    // Explicitly declare state and props to resolve "Property does not exist on type 'ErrorBoundary'" errors.
+    public state: State;
+    public props: Props;
 
+    // FIX: Initializing state in the constructor and passing props to super() provides the most reliable type resolution for inherited members in TypeScript class components.
     constructor(props: Props) {
         super(props);
+        this.state = { hasError: false, error: null };
+        this.props = props;
     }
 
     static getDerivedStateFromError(error: Error): State {
@@ -29,7 +33,7 @@ class ErrorBoundary extends React.Component<Props, State> {
     }
 
     render() {
-        // FIX: Accessing this.state is now correctly resolved through explicit inheritance from React.Component.
+        // FIX: Accessing this.state is now correctly resolved through explicit declaration and standard inheritance.
         if (this.state.hasError) {
             return (
                 <div className="flex flex-col items-center justify-center h-screen bg-red-50 p-6 text-center">
@@ -44,7 +48,7 @@ class ErrorBoundary extends React.Component<Props, State> {
             );
         }
         
-        // FIX: With ErrorBoundary explicitly extending React.Component<Props, State>, 'this.props' is now correctly recognized and typed according to the 'Props' interface.
+        // FIX: this.props.children is now correctly recognized as a member of ErrorBoundary.
         return this.props.children || null;
     }
 }

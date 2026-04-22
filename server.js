@@ -4,11 +4,11 @@ const cors = require('cors');
 const path = require('path');
 const { Pool } = require('pg');
 
-const SERVER_VERSION = '4.1.1';
+const SERVER_VERSION = '4.1.2';
 console.log(`\n\n[APPBCTH] Starting Server v${SERVER_VERSION} - Cloud SQL Optimized`);
 
 const app = express();
-const port = process.env.PORT || 8080;
+const port = 3000;
 
 let pool = null;
 let isDbConnected = false;
@@ -53,10 +53,15 @@ const connectWithRetry = async (retries = 5) => {
     } catch (err) {
         isDbConnected = false;
         lastDbError = err.message;
-        console.error("❌ [DB] Connection Failed:", err.message);
-        if (retries > 0) {
-            console.log(`[DB] Retrying in 5s... (${retries} attempts left)`);
-            setTimeout(() => connectWithRetry(retries - 1), 5000);
+        if (INSTANCE_NAME) {
+            console.error("❌ [DB] Cloud SQL Connection Failed:", err.message);
+            if (retries > 0) {
+                console.log(`[DB] Retrying in 5s... (${retries} attempts left)`);
+                setTimeout(() => connectWithRetry(retries - 1), 5000);
+            }
+        } else {
+            console.log(`⚠️ [DB] PostgreSQL not available locally (${err.message}).`);
+            console.log(`⚠️ [DB] App will run in offline mode using browser localStorage.`);
         }
     }
 };
@@ -88,9 +93,8 @@ const ensureSchema = async () => {
 connectWithRetry();
 
 app.use(cors());
-app.use(express.json({ limit: '60mb' }));
+app.use(express.json({ limit: '100mb' }));
 
-// MỚI: API lấy toàn bộ dữ liệu chi tiết của các session
 app.get('/api/sessions', async (req, res) => {
     if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
     try {
@@ -123,6 +127,32 @@ app.post('/api/sessions', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// MỚI: API Lưu hàng loạt kỳ sát hạch (Dùng cho nạp lịch sử)
+app.post('/api/sessions/bulk', async (req, res) => {
+    if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
+    const sessions = req.body;
+    if (!Array.isArray(sessions)) return res.status(400).json({ error: "Expected array" });
+    
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        for (const s of sessions) {
+            await client.query(
+                `INSERT INTO sessions (id, data, report_date, created_at) VALUES ($1, $2, $3, $4) 
+                 ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, report_date = EXCLUDED.report_date`,
+                [s.id, JSON.stringify(s), s.reportDate, s.createdAt]
+            );
+        }
+        await client.query('COMMIT');
+        res.json({ success: true, count: sessions.length });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 app.get('/api/sessions/:id', async (req, res) => {
     if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
     try {
@@ -137,6 +167,52 @@ app.get('/api/training-units', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM training_units ORDER BY created_at ASC');
         res.json(result.rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/training-units', async (req, res) => {
+    if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
+    const u = req.body;
+    try {
+        await pool.query(
+            `INSERT INTO training_units (id, code, name, created_at) VALUES ($1, $2, $3, $4) 
+             ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name`,
+            [u.id, u.code, u.name, u.createdAt || Date.now()]
+        );
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/training-units/bulk', async (req, res) => {
+    if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
+    const units = req.body;
+    if (!Array.isArray(units)) return res.status(400).json({ error: "Expected array" });
+    
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        for (const u of units) {
+            await client.query(
+                `INSERT INTO training_units (id, code, name, created_at) VALUES ($1, $2, $3, $4) 
+                 ON CONFLICT (id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.name`,
+                [u.id, u.code, u.name, u.createdAt || Date.now()]
+            );
+        }
+        await client.query('COMMIT');
+        res.json({ success: true, count: units.length });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.delete('/api/training-units/:id', async (req, res) => {
+    if (!isDbConnected) return res.status(503).json({ error: "Database Offline" });
+    try {
+        await pool.query('DELETE FROM training_units WHERE id = $1', [req.params.id]);
+        res.json({ success: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -157,10 +233,24 @@ app.delete('/api/sessions/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-const distPath = path.join(__dirname, 'dist');
-app.use(express.static(distPath));
-app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+async function startServer() {
+    const distPath = path.join(__dirname, 'dist');
+    
+    if (process.env.NODE_ENV !== 'production') {
+        const { createServer: createViteServer } = await import('vite');
+        const vite = await createViteServer({
+            server: { middlewareMode: true },
+            appType: 'spa',
+        });
+        app.use(vite.middlewares);
+    } else {
+        app.use(express.static(distPath));
+        app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
+    }
 
-app.listen(port, '0.0.0.0', () => {
-    console.log(`🚀 [APPBCTH] Server v${SERVER_VERSION} online on port ${port}`);
-});
+    app.listen(port, '0.0.0.0', () => {
+        console.log(`🚀 [APPBCTH] Server v${SERVER_VERSION} online on port ${port}`);
+    });
+}
+
+startServer();

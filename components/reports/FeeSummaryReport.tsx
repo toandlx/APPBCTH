@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import type { LicenseClassData, ReportMetadata, StudentRecord } from '../../types';
 import { toVietnameseWords } from '../../services/vietnameseNumberToWords';
-import { getResultStatus } from '../../services/reportUtils';
+import { getResultStatus, parseNoiDungThi } from '../../services/reportUtils';
 
 interface FeeSummaryReportProps {
     grandTotal: LicenseClassData | null;
@@ -34,11 +34,11 @@ export const FeeSummaryReport: React.FC<FeeSummaryReportProps> = ({ grandTotal, 
 
         studentRecords.forEach(record => {
             // Logic Quyết định
-            const nd = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
-            if (nd.includes('L')) qdCountL++;
-            if (nd.includes('M')) qdCountM++;
-            if (nd.includes('H')) qdCountH++;
-            if (nd.includes('D')) qdCountD++;
+            const nd = parseNoiDungThi(record['NỘI DUNG THI'] as string);
+            if (nd.includes('L') || (!nd && getResultStatus(record['LÝ THUYẾT']).participated)) qdCountL++;
+            if (nd.includes('M') || (!nd && getResultStatus(record['MÔ PHỎNG']).participated)) qdCountM++;
+            if (nd.includes('H') || (!nd && getResultStatus(record['SA HÌNH']).participated)) qdCountH++;
+            if (nd.includes('D') || (!nd && getResultStatus(record['ĐƯỜNG TRƯỜNG']).participated)) qdCountD++;
 
             // Logic Thực tế
             if (getResultStatus(record['LÝ THUYẾT']).participated) realCountL++;

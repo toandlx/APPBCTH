@@ -17,11 +17,6 @@ export default defineConfig({
     outDir: 'dist',
   },
   server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      }
-    }
+    // Proxy removed as we use Vite middleware in Express
   }
 });

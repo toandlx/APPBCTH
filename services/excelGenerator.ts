@@ -1,7 +1,7 @@
 
 import type { AppData, LicenseClassData, StudentRecord, ReportMetadata, TrainingUnit, SavedSession } from '../types';
 import { toVietnameseWords } from './vietnameseNumberToWords';
-import { getResultStatus } from './reportUtils';
+import { getResultStatus, parseNoiDungThi } from './reportUtils';
 
 declare const XLSX: any;
 
@@ -185,11 +185,11 @@ export const exportGeneralReportToExcel = (
 
     if (studentRecords) {
         studentRecords.forEach(record => {
-            const nd = String(record['NỘI DUNG THI'] || '').toUpperCase().replace(/Đ/g, 'D');
-            if (nd.includes('L')) qdCountL++;
-            if (nd.includes('M')) qdCountM++;
-            if (nd.includes('H')) qdCountH++;
-            if (nd.includes('D')) qdCountD++;
+            const nd = parseNoiDungThi(record['NỘI DUNG THI'] as string);
+            if (nd.includes('L') || (!nd && getResultStatus(record['LÝ THUYẾT']).participated)) qdCountL++;
+            if (nd.includes('M') || (!nd && getResultStatus(record['MÔ PHỎNG']).participated)) qdCountM++;
+            if (nd.includes('H') || (!nd && getResultStatus(record['SA HÌNH']).participated)) qdCountH++;
+            if (nd.includes('D') || (!nd && getResultStatus(record['ĐƯỜNG TRƯỜNG']).participated)) qdCountD++;
 
             if (getResultStatus(record['LÝ THUYẾT']).participated) realCountL++;
             if (getResultStatus(record['MÔ PHỎNG']).participated) realCountM++;

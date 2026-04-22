@@ -34,6 +34,7 @@ export interface StudentRecord {
   'HỌ VÀ TÊN': string;
   'SỐ CHỨNG MINH'?: string | number;
   'NGÀY SINH'?: string | number;
+  'NGÀY THI'?: string | number; // MỚI
   'NƠI CƯ TRÚ'?: string;
   'HẠNG GPLX': string;
   'NỘI DUNG THI': string;

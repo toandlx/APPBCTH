@@ -6,14 +6,14 @@ const UNIT_API_URL = '/api/training-units';
 const SESSION_STORAGE_KEY = 'appbcth_sessions';
 const UNIT_STORAGE_KEY = 'appbcth_units';
 
-console.log("[Storage] v4.1.0 - Cloud SQL Sync Optimized");
+console.log("[Storage] v4.1.2 - Historical Data Bulk Sync Support");
 
 const tryApi = async <T>(apiCall: () => Promise<T>, fallback: () => T | Promise<T>): Promise<T> => {
     try {
         const result = await apiCall();
         return result;
     } catch (e) {
-        console.warn("[Storage] Network/Database issue, using fallback:", (e as Error).message);
+        console.warn("[Storage] Database connectivity issue, using fallback:", (e as Error).message);
         return await fallback();
     }
 };
@@ -34,7 +34,7 @@ export const storageService = {
                     reportDate: s.reportDate,
                     createdAt: s.createdAt,
                     grandTotal: s.grandTotal,
-                    studentCount: s.studentRecords.length
+                    studentCount: s.studentRecords?.length || 0
                 }));
             }
         );
@@ -58,14 +58,49 @@ export const storageService = {
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(local));
 
         try {
-            const res = await fetch(API_URL, {
+            await fetch(API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(session)
             });
-            if (!res.ok) console.warn("[Storage] Session saved locally only.");
         } catch (e) {
-            console.error("[Storage] Cloud save error:", e);
+            console.error("[Storage] Failed to sync to cloud:", e);
+        }
+    },
+
+    bulkSaveSessions: async (sessions: SavedSession[]): Promise<void> => {
+        const local = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+        const updatedLocal = [...sessions, ...local].slice(0, 500); // Giữ tối đa 500 bản ghi local
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updatedLocal));
+
+        try {
+            await fetch(`${API_URL}/bulk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sessions)
+            });
+        } catch (e) {
+            console.error("[Storage] Bulk Cloud Save Error:", e);
+        }
+    },
+
+    // FIX: Add syncLocalToCloud to allow users to manually push local data to Cloud SQL.
+    syncLocalToCloud: async (): Promise<{ success: number; failed: number }> => {
+        const local = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+        if (local.length === 0) return { success: 0, failed: 0 };
+        
+        try {
+            const res = await fetch(`${API_URL}/bulk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(local)
+            });
+            if (res.ok) {
+                return { success: local.length, failed: 0 };
+            }
+            return { success: 0, failed: local.length };
+        } catch (e) {
+            return { success: 0, failed: local.length };
         }
     },
 
@@ -114,13 +149,16 @@ export const storageService = {
         } catch (e) {}
     },
 
+    // FIX: Add deleteTrainingUnit to manage training unit list via the Admin interface.
     deleteTrainingUnit: async (id: string): Promise<void> => {
         const local = JSON.parse(localStorage.getItem(UNIT_STORAGE_KEY) || '[]');
         localStorage.setItem(UNIT_STORAGE_KEY, JSON.stringify(local.filter((u: any) => u.id !== id)));
         try {
-            await fetch(`${UNIT_API_URL}/${id}`, { method: 'DELETE' });
+            await fetch(`${UNIT_API_URL}/${id}`, {
+                method: 'DELETE'
+            });
         } catch (e) {
-            console.error("[Storage] Failed to delete training unit from cloud:", e);
+            console.error("[Storage] Failed to delete training unit on cloud:", e);
         }
     },
 
@@ -141,26 +179,8 @@ export const storageService = {
             });
             return res.ok;
         } catch (e) {
-            console.error("[Storage] Failed to sync bulk units to cloud:", e);
             return false;
         }
-    },
-
-    syncLocalToCloud: async (): Promise<{ success: number; failed: number }> => {
-        const local = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
-        let success = 0;
-        let failed = 0;
-        for (const session of local) {
-            try {
-                const res = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(session)
-                });
-                if (res.ok) success++; else failed++;
-            } catch (e) { failed++; }
-        }
-        return { success, failed };
     },
 
     clearLocalCache: () => localStorage.removeItem(SESSION_STORAGE_KEY),
